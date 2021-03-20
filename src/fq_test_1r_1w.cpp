@@ -1,20 +1,22 @@
-#include <thread>
-
+#include "FunctionQueue_SCSP.h"
 #include "FunctionQueue.h"
 #include "util.h"
 #include "ComputeCallbackGenerator.h"
+
+#include <thread>
 
 
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-using LockFreeQueue = FunctionQueue<true, true, ComputeFunctionSig>;
+//using LockFreeQueue = FunctionQueue<true, true, ComputeFunctionSig>;
+using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false>;
 
 void test_lockFreeQueue(LockFreeQueue &rawComputeQueue, CallbackGenerator &callbackGenerator, size_t functions);
 
 int main(int argc, char **argv) {
     size_t const rawQueueMemSize =
-            [&] { return (argc >= 2) ? atof(argv[1]) : 225 / 1024.0 / 1024.0; }() * 1024 * 1024;
+            [&] { return (argc >= 2) ? atof(argv[1]) : 10000 / 1024.0 / 1024.0; }() * 1024 * 1024;
 
     auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize);
     println("using buffer of size :", rawQueueMemSize);
@@ -41,7 +43,10 @@ void test_lockFreeQueue(LockFreeQueue &rawComputeQueue, CallbackGenerator &callb
                 num = res;
                 if (rawComputeQueue) {
                     res = rawComputeQueue.callAndPop(res);
-                } else std::this_thread::yield();
+//                    println(res);
+                } else {
+                    std::this_thread::yield();
+                }
             }
         }
         println("result :", num, '\n');

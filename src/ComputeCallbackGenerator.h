@@ -31,7 +31,7 @@ class ComputeFunctor {
 private:
     size_t data[fields];
 public:
-    explicit ComputeFunctor(Random<std::mt19937_64> &rng) {
+    explicit ComputeFunctor(Random<std::mt19937_64> &rng) noexcept {
         rng.fillRand<size_t>(0, std::numeric_limits<size_t>::max(), std::begin(data), std::end(data));
     }
 

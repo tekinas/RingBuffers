@@ -1,45 +1,22 @@
+#include "FunctionQueue_SCSP.h"
 #include "SyncFuctionQueue.h"
 #include "util.h"
-
-#include <atomic>
-
-#define str(exp) #exp
-#define evalP(exp) println(str(exp)," : ",exp)
-
-#include <thread>
 #include "ComputeCallbackGenerator.h"
 
+#include <thread>
 
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-using LockFreeQueue = SyncFunctionQueue<ComputeFunctionSig>;
+//using LockFreeQueue = SyncFunctionQueue<ComputeFunctionSig>;
+using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false>;
+
 
 void test_lockFreeQueue(LockFreeQueue &rawComputeQueue, CallbackGenerator &callbackGenerator, size_t functions);
 
 int main(int argc, char **argv) {
-    struct FunctionCxt {
-        uint32_t fq_offset;
-        uint16_t obj_offset;
-        uint16_t stride;
-    };
-
-    using AtomicFunctionCxt = std::atomic<FunctionCxt>;
-
-    evalP(sizeof(FunctionCxt));
-    evalP(alignof(FunctionCxt));
-    evalP(sizeof(AtomicFunctionCxt));
-    evalP(alignof(AtomicFunctionCxt));
-
-    AtomicFunctionCxt functionCxt;
-    evalP(functionCxt.is_always_lock_free);
-    evalP(functionCxt.is_lock_free());
-
-    evalP(sizeof(SyncFunctionQueue<void()>));
-    evalP(alignof(SyncFunctionQueue<void()>));
-
     size_t const rawQueueMemSize =
-            [&] { return (argc >= 2) ? atof(argv[1]) : 225 / 1024.0 / 1024.0; }() * 1024 * 1024;
+            [&] { return (argc >= 2) ? atof(argv[1]) : 10000 / 1024.0 / 1024.0; }() * 1024 * 1024;
 
     auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize);
     println("using buffer of size :", rawQueueMemSize);

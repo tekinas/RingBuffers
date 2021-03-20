@@ -68,22 +68,24 @@
       <config projectName="FunctionQueue" targetName="absl_cord" />
       <config projectName="FunctionQueue" targetName="absl_failure_signal_handler" />
       <config projectName="FunctionQueue" targetName="absl_leak_check_disable" />
-      <config projectName="FunctionQueue" targetName="absl_flags_config" />
       <config projectName="FunctionQueue" targetName="fq_test_nr_nw_asio" />
+      <config projectName="FunctionQueue" targetName="absl_flags_config" />
       <config projectName="FunctionQueue" targetName="fq_test_nr_nw" />
     </generated>
   </component>
   <component name="CMakeSettings">
     <configurations>
-      <configuration PROFILE_NAME="Debug" CONFIG_NAME="Debug" ENABLED="true" />
-      <configuration PROFILE_NAME="Release" CONFIG_NAME="Release" ENABLED="true" />
+      <configuration PROFILE_NAME="Debug" CONFIG_NAME="Debug" BUILD_OPTIONS="-- -j 8" ENABLED="true" />
+      <configuration PROFILE_NAME="Release" CONFIG_NAME="Release" BUILD_OPTIONS="-- -j 8" ENABLED="true" />
     </configurations>
   </component>
   <component name="ChangeListManager">
     <list default="true" id="208b6fd8-6760-4f44-bd15-2f487cfe8997" name="Default Changelist" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/CMakeLists.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/fq_test_nr_nw.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/fq_test_nr_nw.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/ComputeCallbackGenerator.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/ComputeCallbackGenerator.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/ConcurrentFunctionQueue.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/ConcurrentFunctionQueue.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/fq_test_1r_1w.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/fq_test_1r_1w.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/fq_test_sync_only.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/fq_test_sync_only.cpp" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -121,17 +123,12 @@
     <property name="cf.first.check.clang-format" value="false" />
     <property name="last_opened_file_path" value="$PROJECT_DIR$" />
     <property name="restartRequiresConfirmation" value="false" />
-    <property name="settings.editor.selected.configurable" value="CPPToolchains" />
+    <property name="settings.editor.selected.configurable" value="editor.preferences.fonts.default" />
   </component>
-  <component name="RunManager" selected="CMake Application.fq_test_nr_nw">
+  <component name="RunManager" selected="CMake Application.fq_test_sync_only">
     <configuration default="true" type="CLionExternalRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" PASS_PARENT_ENVS_2="true">
       <method v="2">
         <option name="CLION.EXTERNAL.BUILD" enabled="true" />
-      </method>
-    </configuration>
-    <configuration default="true" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" PASS_PARENT_ENVS_2="true">
-      <method v="2">
-        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
     <configuration name="absl_bad_any_cast_impl" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="FunctionQueue" TARGET_NAME="absl_bad_any_cast_impl" CONFIG_NAME="Debug">
@@ -479,6 +476,11 @@
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
+    <configuration default="true" type="GradleAppRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" PASS_PARENT_ENVS_2="true">
+      <method v="2">
+        <option name="com.jetbrains.cidr.cpp.gradle.execution.GradleNativeBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
     <list>
       <item itemvalue="CMake Application.fq_test_1r_1w" />
       <item itemvalue="CMake Application.fq_test_1r_nw" />
@@ -612,7 +614,13 @@
       <workItem from="1614963759797" duration="5816000" />
       <workItem from="1615018360708" duration="11109000" />
       <workItem from="1615046019826" duration="2060000" />
-      <workItem from="1615085140462" duration="2299000" />
+      <workItem from="1615085140462" duration="2677000" />
+      <workItem from="1615351709699" duration="2206000" />
+      <workItem from="1615369337173" duration="9687000" />
+      <workItem from="1615447718446" duration="16976000" />
+      <workItem from="1615473896291" duration="6274000" />
+      <workItem from="1616143620714" duration="19156000" />
+      <workItem from="1616177326039" duration="34135000" />
     </task>
     <servers />
   </component>
