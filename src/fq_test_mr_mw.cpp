@@ -1,14 +1,15 @@
-#include <thread>
-
-#include "SyncFuctionQueue.h"
+#include "SyncFunctionQueue.h"
+#include "FunctionQueue_SCSP.h"
 #include "util.h"
 #include "ComputeCallbackGenerator.h"
 
+#include <thread>
 
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-using LockFreeQueue = SyncFunctionQueue</*true, true,*/ ComputeFunctionSig>;
+//using LockFreeQueue = SyncFunctionQueue<ComputeFunctionSig>;
+using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, true, true, false>;
 
 int main(int argc, char **argv) {
     size_t const rawQueueMemSize =
@@ -27,63 +28,67 @@ int main(int argc, char **argv) {
         return (argc >= 5) ? atol(argv[4]) : std::thread::hardware_concurrency();
     }();
     println("total reader threads :", numReaderThreads);
+    println();
 
     LockFreeQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
 
-    { /// writing functions to the queue concurrently ::::
-        std::vector<std::thread> writer_threads;
+    {/// writing functions to the queue concurrently ::::
         Timer timer{"data write time :"};
 
-        for (auto t = numWriterThreads; t--;) {
-            writer_threads.emplace_back([=, &rawComputeQueue] {
-                auto func = 3'100'000;
-                CallbackGenerator callbackGenerator{seed};
-                while (func) {
-                    callbackGenerator.addCallback(
-                            [&]<typename T>(T &&t) {
-                                while (!rawComputeQueue.push_back(std::forward<T>(t))) {
-                                    std::this_thread::yield();
-                                }
-                                --func;
-                            });
-                }
+        {
+            std::vector<std::jthread> writer_threads;
+            for (auto t = numWriterThreads; t--;) {
+                writer_threads.emplace_back([=, &rawComputeQueue] {
+                    auto func = 3'100'000;
+                    CallbackGenerator callbackGenerator{seed};
+                    while (func) {
+                        callbackGenerator.addCallback(
+                                [&]<typename T>(T &&t) {
+                                    while (!rawComputeQueue.push_back(std::forward<T>(t))) {
+                                        std::this_thread::yield();
+                                    }
+                                    --func;
+                                });
+                    }
 
-                println("thread ", t, " finished");
-            });
+                    println("thread ", t, " finished");
+                });
+            }
         }
-
-        for (auto &&t:writer_threads)
-            t.join();
     }
     println(numWriterThreads, " writer threads joined\n");
 
 
+    size_t const functions = rawComputeQueue.size();
     std::vector<size_t> result_vector;
+    result_vector.reserve(functions);
+
     std::mutex res_vec_mut;
 
     { /// reading functions from the queue concurrently ::::
-        std::vector<std::thread> reader_threads;
         Timer timer{"data read time :"};
 
-        for (auto t = numReaderThreads; t--;) {
-            reader_threads.emplace_back([=, &rawComputeQueue, &result_vector, &res_vec_mut] {
-                uint32_t func{0};
-                std::vector<size_t> data;
-                while (rawComputeQueue) {
-                    auto const res = rawComputeQueue.callAndPop(seed);
-                    data.push_back(res);
-                    ++func;
-                }
+        {
+            std::vector<std::jthread> reader_threads;
+            for (auto t = numReaderThreads; t--;) {
+                reader_threads.emplace_back([=, &rawComputeQueue, &result_vector, &res_vec_mut] {
+                    std::vector<size_t> res_vec;
+                    res_vec.reserve(11 * functions / numReaderThreads / 10);
 
-                println("thread ", t, " read ", func, " functions");
+                    uint32_t func{0};
+                    while (rawComputeQueue) {
+                        auto const res = rawComputeQueue.callAndPop(seed);
+                        res_vec.push_back(res);
+                        ++func;
+                    }
 
-                std::lock_guard lock{res_vec_mut};
-                result_vector.insert(result_vector.end(), data.begin(), data.end());
-            });
+                    println("thread ", t, " read ", func, " functions");
+
+                    std::lock_guard lock{res_vec_mut};
+                    result_vector.insert(result_vector.end(), res_vec.begin(), res_vec.end());
+                });
+            }
         }
-
-        for (auto &&t:reader_threads)
-            t.join();
     }
     println(numReaderThreads, " reader threads joined\n");
 

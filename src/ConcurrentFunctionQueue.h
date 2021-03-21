@@ -11,6 +11,7 @@
 #include <tbb/concurrent_hash_map.h>
 
 #include <absl/hash/hash.h>
+#include <thread>
 
 template<typename FunctionSignature>
 class ConcurrentFunctionQueue {

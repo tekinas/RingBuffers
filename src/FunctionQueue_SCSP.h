@@ -8,6 +8,8 @@
 #include <atomic>
 #include <cstring>
 #include <cstddef>
+#include <limits>
+#include <memory>
 #include <functional>
 #include <cstdio>
 
@@ -228,7 +230,6 @@ private:
     static R invokeAndDestroy(void *data, Args... args) noexcept {
         auto const functor_ptr = static_cast<Callable *>(data);
         if constexpr (std::is_same_v<R, void>) {
-            functor(args...);
             std::invoke(*functor_ptr, args...);
             std::destroy_at(functor_ptr);
         } else {

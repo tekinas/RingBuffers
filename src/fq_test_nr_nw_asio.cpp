@@ -1,10 +1,8 @@
-#include <thread>
-#include <string>
-
-#include <boost/asio.hpp>
-#include "util.h"
 #include "ComputeCallbackGenerator.h"
+#include "util.h"
 
+#include <thread>
+#include <boost/asio.hpp>
 
 using namespace util;
 

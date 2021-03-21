@@ -1,14 +1,16 @@
 #include "FunctionQueue.h"
 #include "FunctionQueue_SCSP.h"
-#include <chrono>
-#include <deque>
-#include <folly/Function.h>
-
 #include "util.h"
 #include "ComputeCallbackGenerator.h"
 
+#include <deque>
+#include <folly/Function.h>
 
 using namespace util;
+
+using ComputeFunctionSig = size_t(size_t);
+//using LockFreeQueue = FunctionQueue<true, true, ComputeFunctionSig>;
+using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
 
 using folly::Function;
 
@@ -22,9 +24,7 @@ int main(int argc, char **argv) {
     println("using buffer of size :", rawQueueMemSize);
 
     auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize);
-    //    using FunctionQueueType = FunctionQueue<true, true, ComputeFunctionSig>;
-    using FunctionQueueType = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
-    FunctionQueueType rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
+    LockFreeQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
 
     std::pmr::pool_options poolOptions{};
     std::pmr::unsynchronized_pool_resource p1{poolOptions}, p2{poolOptions};

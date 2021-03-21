@@ -1,16 +1,15 @@
-#include <thread>
-#include <string>
-
-#include "ConcurrentFunctionQueue.h"
-#include "SyncFuctionQueue.h"
+#include "SyncFunctionQueue.h"
+#include "FunctionQueue_SCSP.h"
 #include "util.h"
 #include "ComputeCallbackGenerator.h"
 
+#include <thread>
 
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-using LockFreeQueue = ConcurrentFunctionQueue</*true, true, */ComputeFunctionSig>;
+//using LockFreeQueue = SyncFunctionQueue<ComputeFunctionSig>;
+using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, true, false, false>;
 
 int main(int argc, char **argv) {
     size_t const rawQueueMemSize =
@@ -31,12 +30,15 @@ int main(int argc, char **argv) {
     LockFreeQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
 
     std::vector<size_t> result_vector;
-    std::mutex result_mut;
-    std::vector<std::thread> reader_threads;
+    result_vector.reserve(functions);
 
+    std::mutex result_mut;
+
+    std::vector<std::jthread> reader_threads;
     for (auto t = num_threads; t--;)
         reader_threads.emplace_back([&, str{"thread " + std::to_string(t + 1)}] {
             std::vector<size_t> res_vec;
+            res_vec.reserve(11 * functions / num_threads / 10);
             {
                 Timer timer{str};
 
@@ -48,8 +50,10 @@ int main(int argc, char **argv) {
                 }
             }
 
-            std::lock_guard lock{result_mut};
             println("numbers computed : ", res_vec.size());
+            std::cout.flush();
+
+            std::lock_guard lock{result_mut};
             result_vector.insert(result_vector.end(), res_vec.begin(), res_vec.end());
         });
 
@@ -70,8 +74,7 @@ int main(int argc, char **argv) {
             while (!rawComputeQueue.push_back([](auto) { return std::numeric_limits<size_t>::max(); }));
     }();
 
-    for (auto &&t:reader_threads)
-        t.join();
+    reader_threads.clear();
 
     println("result vector size : ", result_vector.size());
     print("sorting result vector .... ");

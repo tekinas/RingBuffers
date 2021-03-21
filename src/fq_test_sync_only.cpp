@@ -1,5 +1,5 @@
 #include "FunctionQueue_SCSP.h"
-#include "SyncFuctionQueue.h"
+#include "SyncFunctionQueue.h"
 #include "util.h"
 #include "ComputeCallbackGenerator.h"
 

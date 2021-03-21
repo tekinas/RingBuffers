@@ -1,15 +1,15 @@
-#include <thread>
-#include <string>
-
 #include "ConcurrentFunctionQueue.h"
+#include "FunctionQueue_SCSP.h"
 #include "util.h"
 #include "ComputeCallbackGenerator.h"
 
+#include <thread>
 
 using namespace util;
 
 using ComputeFunctionSig = void();
-using LockFreeQueue = ConcurrentFunctionQueue</*true, true, */ComputeFunctionSig>;
+//using LockFreeQueue = ConcurrentFunctionQueue<ComputeFunctionSig>;
+using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, true, false, false>;
 
 struct ComputeCxt {
 private:

@@ -1,22 +1,23 @@
-#include <thread>
-
 #include "ConcurrentFunctionQueue.h"
-#include "FunctionQueue.h"
+#include "FunctionQueue_SCSP.h"
 #include "util.h"
 #include "ComputeCallbackGenerator.h"
 
+#include <thread>
 
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-using LockFreeQueue = ConcurrentFunctionQueue</*true, true,*/ ComputeFunctionSig>;
+//using LockFreeQueue = ConcurrentFunctionQueue<ComputeFunctionSig>;
+using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, true, true>;
+
 
 int main(int argc, char **argv) {
     if (argc == 1) {
         println("usage : ./fq_test_nr_nw <buffer_size> <seed> <functions> <threads>");
     }
 
-    size_t const rawQueueMemSize = [&] { return (argc >= 2) ? atof(argv[1]) : 1; }() * 1024 * 1024;
+    size_t const rawQueueMemSize = [&] { return (argc >= 2) ? atof(argv[1]) : 100; }() * 1024 * 1024;
     auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize + 10);
     println("using buffer of size :", rawQueueMemSize);
 

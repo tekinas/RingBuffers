@@ -1,5 +1,5 @@
-#ifndef FUNCTIONQUEUE_SYNCFUCTIONQUEUE_H
-#define FUNCTIONQUEUE_SYNCFUCTIONQUEUE_H
+#ifndef FUNCTIONQUEUE_SYNCFUNCTIONQUEUE_H
+#define FUNCTIONQUEUE_SYNCFUNCTIONQUEUE_H
 
 #include <atomic>
 #include <type_traits>
@@ -257,6 +257,10 @@ public:
         if (input_pos > out_pos) return input_pos - out_pos;
         else if (input_pos == out_pos) return m_Remaining.load() ? m_MemorySize : 0;
         else return m_MemorySize - (out_pos - input_pos);
+    }
+
+    auto size() const noexcept {
+        return m_Remaining.load(std::memory_order_relaxed);
     }
 
 };
