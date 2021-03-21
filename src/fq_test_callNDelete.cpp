@@ -1,4 +1,5 @@
 #include "FunctionQueue.h"
+#include "FunctionQueue_SCSP.h"
 #include <chrono>
 #include <deque>
 #include <folly/Function.h>
@@ -17,11 +18,13 @@ int main(int argc, char **argv) {
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
     println("using seed :", seed);
 
-    size_t const rawQueueMemSize{[&] { return (argc >= 2) ? atol(argv[1]) : 500ul; }() * 1024 * 1024};
+    size_t const rawQueueMemSize = [&] { return (argc >= 2) ? atof(argv[1]) : 500.0; }() * 1024 * 1024;
     println("using buffer of size :", rawQueueMemSize);
 
     auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize);
-    FunctionQueue<true, true, ComputeFunctionSig> rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
+    //    using FunctionQueueType = FunctionQueue<true, true, ComputeFunctionSig>;
+    using FunctionQueueType = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
+    FunctionQueueType rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
 
     std::pmr::pool_options poolOptions{};
     std::pmr::unsynchronized_pool_resource p1{poolOptions}, p2{poolOptions};
@@ -32,7 +35,7 @@ int main(int argc, char **argv) {
 
     size_t const compute_functors =
             [&] {
-                Timer timer{"raw queue fill time"};
+                Timer timer{"function queue fill time"};
                 bool addFunction = true;
                 while (addFunction) {
                     callbackGenerator.addCallback(
@@ -67,7 +70,7 @@ int main(int argc, char **argv) {
 
     println();
     println("total compute functions : ", compute_functors);
-    println("raw queue storage :", rawComputeQueue.storage_used(), " bytes");
+//    println("raw queue storage :", rawComputeQueue.storage_used(), " bytes");
     println("function vector storage :",
             vectorComputeQueue.size() * sizeof(decltype(vectorComputeQueue)::value_type), " bytes");
     println("std function vector storage :",
@@ -94,7 +97,7 @@ int main(int argc, char **argv) {
 void test(std::pmr::deque<Function<ComputeFunctionSig>> &vectorComputeQueue) {
     size_t num = 0;
     {
-        Timer timer{"vector of functions"};
+        Timer timer{"deque of functions"};
         while (!vectorComputeQueue.empty()) {
             num = vectorComputeQueue.front()(num);
             vectorComputeQueue.pop_front();
@@ -107,7 +110,7 @@ void test(std::pmr::deque<Function<ComputeFunctionSig>> &vectorComputeQueue) {
 void test(std::pmr::deque<std::function<ComputeFunctionSig>> &vectorStdComputeQueue) {
     size_t num = 0;
     {
-        Timer timer{"vector of std functions"};
+        Timer timer{"deque of std functions"};
         while (!vectorStdComputeQueue.empty()) {
             num = vectorStdComputeQueue.front()(num);
             vectorStdComputeQueue.pop_front();

@@ -11,26 +11,38 @@
 #include <functional>
 #include <cstdio>
 
-template<typename T, bool readProtected, bool writeProtected>
+template<typename T, bool readProtected, bool writeProtected, bool destroyNonInvoked = true>
 class FunctionQueue_SCSP {
 };
 
-template<typename R, typename ...Args, bool readProtected, bool writeProtected>
-class FunctionQueue_SCSP<R(Args...), readProtected, writeProtected> {
+template<typename R, typename ...Args, bool readProtected, bool writeProtected, bool destroyNonInvoked>
+class FunctionQueue_SCSP<R(Args...), readProtected, writeProtected, destroyNonInvoked> {
 private:
 
-    using InvokeAndDestroy = R(*)(void *data, Args...) noexcept;
+    using InvokeAndDestroy = R(*)(void *obj_ptr, Args...) noexcept;
 
     class Null {
+    public:
+        template<typename ...T>
+        explicit Null(T...) noexcept {}
+    };
+
+    template<typename>
+    class Type {
     };
 
     struct FunctionContext {
         uint32_t const fp_offset;
+        [[no_unique_address]] std::conditional_t<destroyNonInvoked, uint32_t const, Null> destroyFp_offset;
         uint16_t const obj_offset;
         uint16_t const stride;
 
-        FunctionContext(InvokeAndDestroy fp, uint16_t obj_offset, uint16_t stride) noexcept:
-                fp_offset{static_cast<uint32_t>(reinterpret_cast<uintptr_t>(fp) - fp_base)},
+        template<typename Callable>
+        FunctionContext(Type<Callable>, uint16_t obj_offset, uint16_t stride) noexcept:
+                fp_offset{
+                        static_cast<uint32_t>(reinterpret_cast<uintptr_t>(invokeAndDestroy < Callable > ) - fp_base)},
+                destroyFp_offset{
+                        static_cast<uint32_t>(reinterpret_cast<uintptr_t>(destroy < Callable > ) - fp_base)},
                 obj_offset{obj_offset},
                 stride{stride} {}
     };
@@ -57,6 +69,139 @@ private:
             return getObjOffset() + sizeof(Callable);
         }
     };
+
+public:
+    FunctionQueue_SCSP(void *memory, std::size_t size) noexcept: m_Memory{static_cast<std::byte *const>(memory)},
+                                                                 m_MemorySize{static_cast<uint32_t>(size)},
+                                                                 m_InputOffset{0},
+                                                                 m_OutPutOffset{0},
+                                                                 m_Remaining{0}, m_ReadFlag{false}, m_WriteFlag{false} {
+        memset(m_Memory, 0, m_MemorySize);
+    }
+
+    ~FunctionQueue_SCSP() noexcept {
+        if constexpr (destroyNonInvoked) {
+            using Destroy = void (*)(void *obj_ptr) noexcept;
+
+            auto remaining = m_Remaining.load(std::memory_order_acquire);
+
+            if (!remaining) return;
+
+            auto const input_pos = m_InputOffset.load(std::memory_order_relaxed);
+            auto output_pos = m_OutPutOffset.load(std::memory_order_relaxed);
+
+            auto destroyAndForward = [&](auto functionCxt) noexcept {
+                reinterpret_cast<Destroy>(fp_base + functionCxt->destroyFp_offset)(
+                        reinterpret_cast<std::byte *>(functionCxt) + functionCxt->obj_offset);
+                output_pos = reinterpret_cast<std::byte *>(functionCxt) - m_Memory + functionCxt->stride;
+            };
+
+            if (output_pos >= input_pos) {
+                while (remaining) {
+                    if (auto const functionCxt = align<FunctionContext>(m_Memory + output_pos);
+                            functionCxt->fp_offset != std::numeric_limits<uint32_t>::max()) {
+                        destroyAndForward(functionCxt);
+                        --remaining;
+                    } else break;
+                }
+            }
+
+            while (remaining) {
+                auto const functionCxt = align<FunctionContext>(m_Memory + output_pos);
+                destroyAndForward(functionCxt);
+                --remaining;
+            }
+        }
+    }
+
+    explicit operator bool() noexcept {
+        if constexpr (readProtected) {
+            if (m_ReadFlag.test_and_set(std::memory_order_relaxed)) return false;
+            if (!m_Remaining.load(std::memory_order_acquire)) {
+                m_ReadFlag.clear(std::memory_order_relaxed);
+                return false;
+            } else return true;
+        } else return m_Remaining.load(std::memory_order_acquire);
+    }
+
+    R callAndPop(Args...args) noexcept {
+        auto const[invokeAndDestroyFP, objPtr, nextOffset] = extractCallableData();
+
+        auto incr_output_offset_decr_rem = [&, nextOffset{nextOffset}] {
+            m_OutPutOffset.store(nextOffset, std::memory_order_relaxed);
+
+            if constexpr (readProtected) {
+                m_Remaining.fetch_sub(1, std::memory_order_relaxed);
+                m_ReadFlag.clear(std::memory_order_release);
+            } else
+                m_Remaining.fetch_sub(1, std::memory_order_release);
+        };
+
+        if constexpr (std::is_same_v<void, R>) {
+            invokeAndDestroyFP(objPtr, args...);
+            incr_output_offset_decr_rem();
+        } else {
+            auto &&result{invokeAndDestroyFP(objPtr, args...)};
+            incr_output_offset_decr_rem();
+            return std::forward<decltype(result)>(result);
+        }
+    }
+
+    template<typename T>
+    bool push_back(T &&function) noexcept {
+        if constexpr (writeProtected) {
+            if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return false;
+        }
+
+        using Callable = std::decay_t<T>;
+
+        auto const storage = getMemory<Callable>();
+        if (!storage) {
+            if constexpr (writeProtected) {
+                m_WriteFlag.clear(std::memory_order_release);
+            }
+            return false;
+        }
+
+        std::construct_at(storage.fp_ptr, Type<Callable>{}, storage.getObjOffset(), storage.getStride());
+        std::construct_at(storage.obj_ptr, std::forward<T>(function));
+
+        m_Remaining.fetch_add(1, std::memory_order_release);
+
+        if constexpr (writeProtected) {
+            m_WriteFlag.clear(std::memory_order_release);
+        }
+
+        return true;
+    }
+
+    template<typename Callable, typename ...CArgs>
+    bool emplace_back(Args &&...args) noexcept {
+        if constexpr (writeProtected) {
+            if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return false;
+        }
+
+        auto const storage = getMemory<Callable>();
+        if (!storage) {
+            if constexpr (writeProtected) {
+                m_WriteFlag.clear(std::memory_order_release);
+            }
+            return false;
+        }
+
+        std::construct_at(storage.fp_ptr, Type<Callable>{}, storage.getObjOffset(), storage.getStride());
+        std::construct_at(storage.obj_ptr, std::forward<CArgs>(args)...);
+
+        m_Remaining.fetch_add(1, std::memory_order_release);
+
+        if constexpr (writeProtected) {
+            m_WriteFlag.clear(std::memory_order_release);
+        }
+
+        return true;
+    }
+
+    [[nodiscard]] uint32_t size() const noexcept { return m_Remaining.load(std::memory_order_relaxed); }
 
 private:
 
@@ -91,6 +236,11 @@ private:
             std::destroy_at(functor_ptr);
             return std::forward<decltype(result)>(result);
         }
+    }
+
+    template<typename Callable>
+    static R destroy(void *data) noexcept {
+        std::destroy_at(static_cast<Callable *>(data));
     }
 
     template<typename T>
@@ -138,81 +288,15 @@ private:
         return {};
     }
 
-public:
-    FunctionQueue_SCSP(void *memory, std::size_t size) noexcept: m_Memory{static_cast<std::byte *const>(memory)},
-                                                                 m_MemorySize{static_cast<uint32_t>(size)},
-                                                                 m_InputOffset{0},
-                                                                 m_OutPutOffset{0},
-                                                                 m_Remaining{0} {
-        memset(m_Memory, 0, m_MemorySize);
-    }
-
-    explicit operator bool() noexcept {
-        if constexpr (readProtected) {
-            if (m_ReadFlag.test_and_set(std::memory_order_relaxed)) return false;
-            if (!m_Remaining.load(std::memory_order_acquire)) {
-                m_ReadFlag.clear(std::memory_order_relaxed);
-                return false;
-            } else return true;
-        } else return m_Remaining.load(std::memory_order_acquire);
-    }
-
-    R callAndPop(Args...args) noexcept {
-        auto const output_offset = m_OutPutOffset.load(std::memory_order_relaxed);
-        auto functionCxtPtr = align<FunctionContext>(m_Memory + output_offset);
+    std::tuple<InvokeAndDestroy, void *, uint32_t> extractCallableData() const noexcept {
+        auto functionCxtPtr = align<FunctionContext>(m_Memory + m_OutPutOffset.load(std::memory_order_relaxed));
 
         if (functionCxtPtr->fp_offset == std::numeric_limits<uint32_t>::max())
             functionCxtPtr = align<FunctionContext>(m_Memory);
 
-        auto incr_output_offset_decr_rem = [&] {
-            m_OutPutOffset.store(reinterpret_cast<std::byte *>(functionCxtPtr) - m_Memory + functionCxtPtr->stride,
-                                 std::memory_order_relaxed);
-
-            if constexpr (readProtected) {
-                m_Remaining.fetch_sub(1, std::memory_order_relaxed);
-                m_ReadFlag.clear(std::memory_order_release);
-            } else
-                m_Remaining.fetch_sub(1, std::memory_order_release);
-        };
-
-        if constexpr (std::is_same_v<void, R>) {
-            reinterpret_cast<InvokeAndDestroy>(fp_base + functionCxtPtr->fp_offset)(
-                    reinterpret_cast<std::byte *>(functionCxtPtr) + functionCxtPtr->obj_offset, args...);
-            incr_output_offset_decr_rem();
-        } else {
-            auto &&result{reinterpret_cast<InvokeAndDestroy>(fp_base + functionCxtPtr->fp_offset)(
-                    reinterpret_cast<std::byte *>(functionCxtPtr) + functionCxtPtr->obj_offset, args...)};
-            incr_output_offset_decr_rem();
-            return std::forward<decltype(result)>(result);
-        }
-    }
-
-    template<typename T>
-    bool push_back(T &&function) noexcept {
-        if constexpr (writeProtected) {
-            if (!m_WriteFlag.test_and_set(std::memory_order_acquire)) return false;
-        }
-
-        using Callable = std::decay_t<T>;
-
-        auto const storage = getMemory<Callable>();
-        if (!storage) {
-            if constexpr (writeProtected) {
-                m_WriteFlag.clear(std::memory_order_release);
-            }
-            return false;
-        }
-
-        std::construct_at(storage.fp_ptr, invokeAndDestroy<Callable>, storage.getObjOffset(), storage.getStride());
-        std::construct_at(storage.obj_ptr, std::forward<T>(function));
-
-        m_Remaining.fetch_add(1, std::memory_order_release);
-
-        if constexpr (writeProtected) {
-            m_WriteFlag.clear(std::memory_order_release);
-        }
-
-        return true;
+        return {reinterpret_cast<InvokeAndDestroy>(fp_base + functionCxtPtr->fp_offset),
+                reinterpret_cast<std::byte *>(functionCxtPtr) + functionCxtPtr->obj_offset,
+                reinterpret_cast<std::byte *>(functionCxtPtr) - m_Memory + functionCxtPtr->stride};
     }
 
 private:

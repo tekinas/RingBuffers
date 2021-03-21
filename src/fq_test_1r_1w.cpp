@@ -5,7 +5,6 @@
 
 #include <thread>
 
-
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
