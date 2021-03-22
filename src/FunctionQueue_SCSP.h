@@ -26,7 +26,7 @@ private:
     class Null {
     public:
         template<typename ...T>
-        explicit Null(T...) noexcept {}
+        explicit Null(T &&...) noexcept {}
     };
 
     template<typename>
@@ -77,7 +77,9 @@ public:
                                                                  m_MemorySize{static_cast<uint32_t>(size)},
                                                                  m_InputOffset{0},
                                                                  m_OutPutOffset{0},
-                                                                 m_Remaining{0}, m_ReadFlag{false}, m_WriteFlag{false} {
+                                                                 m_Remaining{0} {
+        if constexpr (readProtected) m_ReadFlag.clear(std::memory_order_relaxed);
+        if constexpr (writeProtected) m_WriteFlag.clear(std::memory_order_relaxed);
         memset(m_Memory, 0, m_MemorySize);
     }
 
