@@ -1,4 +1,3 @@
-#include "ConcurrentFunctionQueue.h"
 #include "FunctionQueue_SCSP.h"
 #include "util.h"
 #include "ComputeCallbackGenerator.h"
@@ -8,7 +7,6 @@
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-//using LockFreeQueue = ConcurrentFunctionQueue<ComputeFunctionSig>;
 using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, true, true>;
 
 

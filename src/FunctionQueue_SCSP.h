@@ -240,7 +240,7 @@ private:
     }
 
     template<typename Callable>
-    static R destroy(void *data) noexcept {
+    static void destroy(void *data) noexcept {
         std::destroy_at(static_cast<Callable *>(data));
     }
 
