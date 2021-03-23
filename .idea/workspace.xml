@@ -2,13 +2,13 @@
 <project version="4">
   <component name="CMakeRunConfigurationManager" shouldGenerate="true" shouldDeleteObsolete="true">
     <generated>
+      <config projectName="FunctionQueue" targetName="fq_test_1r_1w" />
       <config projectName="FunctionQueue" targetName="fq_test_nr_1w" />
       <config projectName="FunctionQueue" targetName="fq_test_callNDelete" />
-      <config projectName="FunctionQueue" targetName="fq_test_1r_1w" />
       <config projectName="FunctionQueue" targetName="fq_test_1r_nw" />
       <config projectName="FunctionQueue" targetName="fq_test_call_only" />
-      <config projectName="FunctionQueue" targetName="fq_test_mr_mw" />
       <config projectName="FunctionQueue" targetName="fq_test_nr_nw_asio" />
+      <config projectName="FunctionQueue" targetName="fq_test_mr_mw" />
       <config projectName="FunctionQueue" targetName="fq_test_nr_nw" />
     </generated>
   </component>
@@ -19,7 +19,12 @@
     </configurations>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="208b6fd8-6760-4f44-bd15-2f487cfe8997" name="Default Changelist" comment="" />
+    <list default="true" id="208b6fd8-6760-4f44-bd15-2f487cfe8997" name="Default Changelist" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/CMakeLists.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/FunctionQueue_SCSP.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/FunctionQueue_SCSP.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/fq_test_nr_nw_asio.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/fq_test_nr_nw_asio.cpp" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -56,14 +61,9 @@
     <property name="cf.first.check.clang-format" value="false" />
     <property name="last_opened_file_path" value="$PROJECT_DIR$" />
     <property name="restartRequiresConfirmation" value="false" />
-    <property name="settings.editor.selected.configurable" value="editor.preferences.fonts.default" />
+    <property name="settings.editor.selected.configurable" value="CPPToolchains" />
   </component>
-  <component name="RunManager" selected="CMake Application.fq_test_call_only">
-    <configuration default="true" type="CLionExternalRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" PASS_PARENT_ENVS_2="true">
-      <method v="2">
-        <option name="CLION.EXTERNAL.BUILD" enabled="true" />
-      </method>
-    </configuration>
+  <component name="RunManager" selected="CMake Application.fq_test_1r_1w">
     <configuration default="true" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" PASS_PARENT_ENVS_2="true">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
@@ -107,6 +107,11 @@
     <configuration name="fq_test_nr_nw_asio" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="FunctionQueue" TARGET_NAME="fq_test_nr_nw_asio" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="FunctionQueue" RUN_TARGET_NAME="fq_test_nr_nw_asio">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration default="true" type="GradleAppRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" PASS_PARENT_ENVS_2="true">
+      <method v="2">
+        <option name="com.jetbrains.cidr.cpp.gradle.execution.GradleNativeBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
     <list>
@@ -190,7 +195,11 @@
       <workItem from="1616177326039" duration="34135000" />
       <workItem from="1616317528849" duration="12496000" />
       <workItem from="1616345909803" duration="6479000" />
-      <workItem from="1616440881914" duration="1658000" />
+      <workItem from="1616440881914" duration="1861000" />
+      <workItem from="1616465321742" duration="3661000" />
+      <workItem from="1616501493332" duration="1651000" />
+      <workItem from="1616504072632" duration="4024000" />
+      <workItem from="1616508388467" duration="2762000" />
     </task>
     <servers />
   </component>

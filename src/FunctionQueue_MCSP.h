@@ -1,9 +1,9 @@
 //
-// Created by tekinas on 3/19/21.
+// Created by tekinas on 3/23/21.
 //
 
-#ifndef FUNCTIONQUEUE_FUNCTIONQUEUE_SCSP_H
-#define FUNCTIONQUEUE_FUNCTIONQUEUE_SCSP_H
+#ifndef FUNCTIONQUEUE_FUNCTIONQUEUE_MCSP_H
+#define FUNCTIONQUEUE_FUNCTIONQUEUE_MCSP_H
 
 #include <atomic>
 #include <cstring>
@@ -13,12 +13,12 @@
 #include <functional>
 #include <cstdio>
 
-template<typename T, bool readProtected, bool writeProtected, bool destroyNonInvoked = true>
-class FunctionQueue_SCSP {
+template<typename T, bool writeProtected, bool destroyNonInvoked = true>
+class FunctionQueue_MCSP {
 };
 
-template<typename R, typename ...Args, bool readProtected, bool writeProtected, bool destroyNonInvoked>
-class FunctionQueue_SCSP<R(Args...), readProtected, writeProtected, destroyNonInvoked> {
+template<typename R, typename ...Args, bool writeProtected, bool destroyNonInvoked>
+class FunctionQueue_MCSP<R(Args...), writeProtected, destroyNonInvoked> {
 private:
 
     using InvokeAndDestroy = R(*)(void *obj_ptr, Args...) noexcept;
@@ -73,17 +73,16 @@ private:
     };
 
 public:
-    FunctionQueue_SCSP(void *memory, std::size_t size) noexcept: m_InputOffset{0},
+    FunctionQueue_MCSP(void *memory, std::size_t size) noexcept: m_Memory{static_cast<std::byte *const>(memory)},
+                                                                 m_MemorySize{static_cast<uint32_t>(size)},
+                                                                 m_InputOffset{0},
                                                                  m_OutPutOffset{0},
-                                                                 m_Remaining{0},
-                                                                 m_Memory{static_cast<std::byte *const>(memory)},
-                                                                 m_MemorySize{static_cast<uint32_t>(size)} {
-        if constexpr (readProtected) m_ReadFlag.clear(std::memory_order_relaxed);
+                                                                 m_Remaining{0} {
         if constexpr (writeProtected) m_WriteFlag.clear(std::memory_order_relaxed);
         memset(m_Memory, 0, m_MemorySize);
     }
 
-    ~FunctionQueue_SCSP() noexcept {
+    ~FunctionQueue_MCSP() noexcept {
         if constexpr (destroyNonInvoked) {
             using Destroy = void (*)(void *obj_ptr) noexcept;
 
@@ -91,7 +90,7 @@ public:
 
             if (!remaining) return;
 
-            auto const input_pos = m_InputOffset;
+            auto const input_pos = m_InputOffset.load(std::memory_order_relaxed);
             auto output_pos = m_OutPutOffset.load(std::memory_order_relaxed);
 
             auto destroyAndForward = [&](auto functionCxt) noexcept {
@@ -119,13 +118,12 @@ public:
     }
 
     explicit operator bool() noexcept {
-        if constexpr (readProtected) {
-            if (m_ReadFlag.test_and_set(std::memory_order_relaxed)) return false;
-            if (!m_Remaining.load(std::memory_order_acquire)) {
-                m_ReadFlag.clear(std::memory_order_relaxed);
-                return false;
-            } else return true;
-        } else return m_Remaining.load(std::memory_order_acquire);
+        uint32_t rem = m_Remaining.load(std::memory_order_relaxed);
+        if (!rem) return false;
+
+        while (rem &&
+               !m_Remaining.compare_exchange_weak(rem, rem - 1, std::memory_order_acquire, std::memory_order_relaxed));
+        return rem;
     }
 
     R callAndPop(Args...args) noexcept {
@@ -133,12 +131,6 @@ public:
 
         auto incr_output_offset_decr_rem = [&, nextOffset{nextOffset}] {
             m_OutPutOffset.store(nextOffset, std::memory_order_relaxed);
-
-            if constexpr (readProtected) {
-                m_Remaining.fetch_sub(1, std::memory_order_relaxed);
-                m_ReadFlag.clear(std::memory_order_release);
-            } else
-                m_Remaining.fetch_sub(1, std::memory_order_release);
         };
 
         if constexpr (std::is_same_v<void, R>) {
@@ -257,11 +249,12 @@ private:
         };
 
         auto incr_input_offset = [&](auto &storage) noexcept {
-            m_InputOffset = reinterpret_cast<std::byte *>(storage.obj_ptr) - m_Memory + sizeof(T);
+            m_InputOffset.store(reinterpret_cast<std::byte *>(storage.obj_ptr) - m_Memory + sizeof(T),
+                                std::memory_order::relaxed);
         };
 
         auto const remaining = m_Remaining.load(std::memory_order_acquire);
-        auto const input_offset = m_InputOffset;
+        auto const input_offset = m_InputOffset.load(std::memory_order_relaxed);
         auto const output_offset = m_OutPutOffset.load(std::memory_order_relaxed);
 
         auto const search_ahead = (input_offset > output_offset) || (input_offset == output_offset && !remaining);
@@ -302,19 +295,20 @@ private:
     }
 
 private:
-    uint32_t m_InputOffset;
-    std::atomic<uint32_t> m_OutPutOffset;
     std::atomic<uint32_t> m_Remaining;
+    std::atomic<uint32_t> m_InputOffset;
+
+    uint32_t m_OutPutOffset;
+    std::atomic<uint32_t> m_ReadIndex;
 
     [[no_unique_address]] std::conditional_t<writeProtected, std::atomic_flag, Null> m_WriteFlag;
-    [[no_unique_address]] std::conditional_t<readProtected, std::atomic_flag, Null> m_ReadFlag;
 
     uint32_t const m_MemorySize;
     std::byte *const m_Memory;
 
     static R baseFP(Args...) noexcept {
         if constexpr (!std::is_same_v<R, void>) {
-            return R{};
+            return std::declval<R>();
         }
     }
 
@@ -323,4 +317,4 @@ private:
 };
 
 
-#endif //FUNCTIONQUEUE_FUNCTIONQUEUE_SCSP_H
+#endif //FUNCTIONQUEUE_FUNCTIONQUEUE_MCSP_H

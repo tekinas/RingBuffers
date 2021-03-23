@@ -2,6 +2,9 @@
 #include "util.h"
 
 #include <thread>
+
+#define BOOST_NO_EXCEPTIONS
+
 #include <boost/asio.hpp>
 
 using namespace util;
@@ -75,3 +78,7 @@ int main(int argc, char **argv) {
     for (auto &&t:threads)
         t.join();
 }
+
+#include <boost/throw_exception.hpp>
+
+void boost::throw_exception(std::exception const &e) {}
