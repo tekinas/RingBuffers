@@ -33,18 +33,24 @@ private:
     class Type {
     };
 
+    template<typename T>
+    struct Storage;
+
     struct FunctionContext {
         uint32_t const fp_offset;
         [[no_unique_address]] std::conditional_t<destroyNonInvoked, uint32_t const, Null> destroyFp_offset;
         uint16_t const obj_offset;
         uint16_t const stride;
 
+        template<typename U>
+        friend
+        class Storage;
+
+    private:
         template<typename Callable>
         FunctionContext(Type<Callable>, uint16_t obj_offset, uint16_t stride) noexcept:
-                fp_offset{
-                        static_cast<uint32_t>(reinterpret_cast<uintptr_t>(invokeAndDestroy < Callable > ) - fp_base)},
-                destroyFp_offset{
-                        static_cast<uint32_t>(reinterpret_cast<uintptr_t>(destroy < Callable > ) - fp_base)},
+                fp_offset{static_cast<uint32_t>(reinterpret_cast<uintptr_t>(invokeAndDestroy < Callable > ) - fp_base)},
+                destroyFp_offset{static_cast<uint32_t>(reinterpret_cast<uintptr_t>(destroy < Callable > ) - fp_base)},
                 obj_offset{obj_offset},
                 stride{stride} {}
     };
@@ -63,6 +69,13 @@ private:
             return fp_ptr && obj_ptr;
         }
 
+        template<typename... CArgs>
+        void construct_callable(CArgs &&... args) const noexcept {
+            new(fp_ptr) FunctionContext{Type<Callable>{}, getObjOffset(), getStride()};
+            new(obj_ptr) Callable{std::forward<CArgs>(args)...};
+        }
+
+    private:
         [[nodiscard]] uint16_t getObjOffset() const noexcept {
             return reinterpret_cast<std::byte *>(obj_ptr) - reinterpret_cast<std::byte *>(fp_ptr);
         }
@@ -73,10 +86,7 @@ private:
     };
 
 public:
-    FunctionQueue_SCSP(void *memory, std::size_t size) noexcept: m_InputOffset{0},
-                                                                 m_OutPutOffset{0},
-                                                                 m_Remaining{0},
-                                                                 m_Memory{static_cast<std::byte *const>(memory)},
+    FunctionQueue_SCSP(void *memory, std::size_t size) noexcept: m_Memory{static_cast<std::byte *const>(memory)},
                                                                  m_MemorySize{static_cast<uint32_t>(size)} {
         if constexpr (readProtected) m_ReadFlag.clear(std::memory_order_relaxed);
         if constexpr (writeProtected) m_WriteFlag.clear(std::memory_order_relaxed);
@@ -167,8 +177,7 @@ public:
             return false;
         }
 
-        std::construct_at(storage.fp_ptr, Type<Callable>{}, storage.getObjOffset(), storage.getStride());
-        std::construct_at(storage.obj_ptr, std::forward<T>(function));
+        storage.construct_callable(std::forward<T>(function));
 
         m_Remaining.fetch_add(1, std::memory_order_release);
 
@@ -193,8 +202,7 @@ public:
             return false;
         }
 
-        std::construct_at(storage.fp_ptr, Type<Callable>{}, storage.getObjOffset(), storage.getStride());
-        std::construct_at(storage.obj_ptr, std::forward<CArgs>(args)...);
+        storage.construct_callable(std::forward<CArgs>(args)...);
 
         m_Remaining.fetch_add(1, std::memory_order_release);
 
@@ -302,9 +310,9 @@ private:
     }
 
 private:
-    uint32_t m_InputOffset;
-    std::atomic<uint32_t> m_OutPutOffset;
-    std::atomic<uint32_t> m_Remaining;
+    uint32_t m_InputOffset{0};
+    std::atomic<uint32_t> m_OutPutOffset{0};
+    std::atomic<uint32_t> m_Remaining{0};
 
     [[no_unique_address]] std::conditional_t<writeProtected, std::atomic_flag, Null> m_WriteFlag;
     [[no_unique_address]] std::conditional_t<readProtected, std::atomic_flag, Null> m_ReadFlag;

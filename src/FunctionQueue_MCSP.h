@@ -1,17 +1,9 @@
 //
-// Created by tekinas on 3/23/21.
+// Created by tekinas on 3/24/21.
 //
 
-#ifndef FUNCTIONQUEUE_FUNCTIONQUEUE_MCSP_H
-#define FUNCTIONQUEUE_FUNCTIONQUEUE_MCSP_H
-
-#include <atomic>
-#include <cstring>
-#include <cstddef>
-#include <limits>
-#include <memory>
-#include <functional>
-#include <cstdio>
+#ifndef FUNCTIONQUEUE_FunctionQueue_MCSP_1_1_H
+#define FUNCTIONQUEUE_FunctionQueue_MCSP_1_1_H
 
 template<typename T, bool writeProtected, bool destroyNonInvoked = true>
 class FunctionQueue_MCSP {
@@ -33,18 +25,24 @@ private:
     class Type {
     };
 
+    template<typename T>
+    struct Storage;
+
     struct FunctionContext {
-        uint32_t const fp_offset;
+        std::atomic<uint32_t> fp_offset;
         [[no_unique_address]] std::conditional_t<destroyNonInvoked, uint32_t const, Null> destroyFp_offset;
         uint16_t const obj_offset;
         uint16_t const stride;
 
+        template<typename U>
+        friend
+        class Storage;
+
+    private:
         template<typename Callable>
         FunctionContext(Type<Callable>, uint16_t obj_offset, uint16_t stride) noexcept:
-                fp_offset{
-                        static_cast<uint32_t>(reinterpret_cast<uintptr_t>(invokeAndDestroy < Callable > ) - fp_base)},
-                destroyFp_offset{
-                        static_cast<uint32_t>(reinterpret_cast<uintptr_t>(destroy < Callable > ) - fp_base)},
+                fp_offset{static_cast<uint32_t>(reinterpret_cast<uintptr_t>(invokeAndDestroy < Callable > ) - fp_base)},
+                destroyFp_offset{static_cast<uint32_t>(reinterpret_cast<uintptr_t>(destroy < Callable > ) - fp_base)},
                 obj_offset{obj_offset},
                 stride{stride} {}
     };
@@ -63,6 +61,13 @@ private:
             return fp_ptr && obj_ptr;
         }
 
+        template<typename... CArgs>
+        void construct_callable(CArgs &&... args) const noexcept {
+            new(fp_ptr) FunctionContext{Type<Callable>{}, getObjOffset(), getStride()};
+            new(obj_ptr) Callable{std::forward<CArgs>(args)...};
+        }
+
+    private:
         [[nodiscard]] uint16_t getObjOffset() const noexcept {
             return reinterpret_cast<std::byte *>(obj_ptr) - reinterpret_cast<std::byte *>(fp_ptr);
         }
@@ -74,10 +79,7 @@ private:
 
 public:
     FunctionQueue_MCSP(void *memory, std::size_t size) noexcept: m_Memory{static_cast<std::byte *const>(memory)},
-                                                                 m_MemorySize{static_cast<uint32_t>(size)},
-                                                                 m_InputOffset{0},
-                                                                 m_OutPutOffset{0},
-                                                                 m_Remaining{0} {
+                                                                 m_MemorySize{static_cast<uint32_t>(size)} {
         if constexpr (writeProtected) m_WriteFlag.clear(std::memory_order_relaxed);
         memset(m_Memory, 0, m_MemorySize);
     }
@@ -90,8 +92,8 @@ public:
 
             if (!remaining) return;
 
-            auto const input_pos = m_InputOffset.load(std::memory_order_relaxed);
-            auto output_pos = m_OutPutOffset.load(std::memory_order_relaxed);
+            auto const input_pos = m_InputOffset;
+            auto output_pos = m_OutputFollowOffset;
 
             auto destroyAndForward = [&](auto functionCxt) noexcept {
                 reinterpret_cast<Destroy>(fp_base + functionCxt->destroyFp_offset)(
@@ -101,17 +103,20 @@ public:
 
             if (output_pos >= input_pos) {
                 while (remaining) {
-                    if (auto const functionCxt = align<FunctionContext>(m_Memory + output_pos);
-                            functionCxt->fp_offset != std::numeric_limits<uint32_t>::max()) {
-                        destroyAndForward(functionCxt);
+                    auto const functionCxtPtr = align<FunctionContext>(m_Memory + output_pos);
+                    if (auto const fp_offset = functionCxtPtr->fp_offset.load(std::memory_order_acquire);
+                            fp_offset != std::numeric_limits<uint32_t>::max()) {
+                        if (fp_offset)
+                            destroyAndForward(functionCxtPtr);
                         --remaining;
                     } else break;
                 }
             }
 
             while (remaining) {
-                auto const functionCxt = align<FunctionContext>(m_Memory + output_pos);
-                destroyAndForward(functionCxt);
+                auto const functionCxtPtr = align<FunctionContext>(m_Memory + output_pos);
+                if (functionCxtPtr->fp_offset.load(std::memory_order_acquire))
+                    destroyAndForward(functionCxtPtr);
                 --remaining;
             }
         }
@@ -127,18 +132,31 @@ public:
     }
 
     R callAndPop(Args...args) noexcept {
-        auto const[invokeAndDestroyFP, objPtr, nextOffset] = extractCallableData();
+        FunctionContext *functionCxt;
+        auto out_pos = m_OutPutOffset.load(std::memory_order::relaxed);
+        while (!m_OutPutOffset.compare_exchange_weak(out_pos, [&, out_pos] {
+            functionCxt = align<FunctionContext>(m_Memory + out_pos);
 
-        auto incr_output_offset_decr_rem = [&, nextOffset{nextOffset}] {
-            m_OutPutOffset.store(nextOffset, std::memory_order_relaxed);
+            if (functionCxt->fp_offset.load(std::memory_order_relaxed) == std::numeric_limits<uint32_t>::max()) {
+                functionCxt = align<FunctionContext>(m_Memory);
+            }
+
+            return reinterpret_cast<std::byte *>(functionCxt) - m_Memory + functionCxt->stride;
+        }(), std::memory_order_relaxed, std::memory_order_relaxed));
+
+        auto const invokeAndDestroyFP = reinterpret_cast<InvokeAndDestroy>(functionCxt->fp_offset + fp_base);
+        auto const objPtr = reinterpret_cast<std::byte *>(functionCxt) + functionCxt->obj_offset;
+
+        auto after_call = [=] {
+            functionCxt->fp_offset.store(0, std::memory_order_release);
         };
 
         if constexpr (std::is_same_v<void, R>) {
             invokeAndDestroyFP(objPtr, args...);
-            incr_output_offset_decr_rem();
+            after_call();
         } else {
             auto &&result{invokeAndDestroyFP(objPtr, args...)};
-            incr_output_offset_decr_rem();
+            after_call();
             return std::forward<decltype(result)>(result);
         }
     }
@@ -159,11 +177,11 @@ public:
             return false;
         }
 
-        std::construct_at(storage.fp_ptr, Type<Callable>{}, storage.getObjOffset(), storage.getStride());
-        std::construct_at(storage.obj_ptr, std::forward<T>(function));
+        storage.construct_callable(std::forward<T>(function));
 
         m_Remaining.fetch_add(1, std::memory_order_release);
 
+        ++m_RemainingClean;
         if constexpr (writeProtected) {
             m_WriteFlag.clear(std::memory_order_release);
         }
@@ -185,9 +203,9 @@ public:
             return false;
         }
 
-        std::construct_at(storage.fp_ptr, Type<Callable>{}, storage.getObjOffset(), storage.getStride());
-        std::construct_at(storage.obj_ptr, std::forward<CArgs>(args)...);
+        storage.construct_callable(std::forward<CArgs>(args)...);
 
+        ++m_RemainingClean;
         m_Remaining.fetch_add(1, std::memory_order_release);
 
         if constexpr (writeProtected) {
@@ -238,6 +256,21 @@ private:
         std::destroy_at(static_cast<Callable *>(data));
     }
 
+    void cleanMemory() noexcept {
+        if (m_RemainingClean) {
+            while (m_RemainingClean) {
+                auto const functionCxt = align<FunctionContext>(m_Memory + m_OutputFollowOffset);
+                auto const fp_offset = functionCxt->fp_offset.load(std::memory_order_acquire);
+                if (fp_offset == 0) {
+                    m_OutputFollowOffset = reinterpret_cast<std::byte *>(functionCxt) - m_Memory + functionCxt->stride;
+                    --m_RemainingClean;
+                } else if (fp_offset == std::numeric_limits<uint32_t>::max()) {
+                    m_OutputFollowOffset = 0;
+                } else break;
+            }
+        }
+    }
+
     template<typename T>
     Storage<T> getMemory() noexcept {
         auto getAlignedStorage = [](void *buffer, size_t size) noexcept -> Storage<T> {
@@ -249,13 +282,12 @@ private:
         };
 
         auto incr_input_offset = [&](auto &storage) noexcept {
-            m_InputOffset.store(reinterpret_cast<std::byte *>(storage.obj_ptr) - m_Memory + sizeof(T),
-                                std::memory_order::relaxed);
+            m_InputOffset = reinterpret_cast<std::byte *>(storage.obj_ptr) - m_Memory + sizeof(T);
         };
 
-        auto const remaining = m_Remaining.load(std::memory_order_acquire);
-        auto const input_offset = m_InputOffset.load(std::memory_order_relaxed);
-        auto const output_offset = m_OutPutOffset.load(std::memory_order_relaxed);
+        auto const remaining = m_RemainingClean;
+        auto const input_offset = m_InputOffset;
+        auto const output_offset = m_OutputFollowOffset;
 
         auto const search_ahead = (input_offset > output_offset) || (input_offset == output_offset && !remaining);
 
@@ -273,33 +305,25 @@ private:
                 if (auto storage = getAlignedStorage(m_Memory + mem, buffer_size)) {
                     if (search_ahead)
                         new(align<FunctionContext>(m_Memory + input_offset))
-                                uint32_t{std::numeric_limits<uint32_t>::max()};
+                                std::atomic<uint32_t>{std::numeric_limits<uint32_t>::max()};
                     incr_input_offset(storage);
                     return storage;
                 }
             }
         }
 
+        cleanMemory();
+
         return {};
     }
 
-    std::tuple<InvokeAndDestroy, void *, uint32_t> extractCallableData() const noexcept {
-        auto functionCxtPtr = align<FunctionContext>(m_Memory + m_OutPutOffset.load(std::memory_order_relaxed));
-
-        if (functionCxtPtr->fp_offset == std::numeric_limits<uint32_t>::max())
-            functionCxtPtr = align<FunctionContext>(m_Memory);
-
-        return {reinterpret_cast<InvokeAndDestroy>(fp_base + functionCxtPtr->fp_offset),
-                reinterpret_cast<std::byte *>(functionCxtPtr) + functionCxtPtr->obj_offset,
-                reinterpret_cast<std::byte *>(functionCxtPtr) - m_Memory + functionCxtPtr->stride};
-    }
-
 private:
-    std::atomic<uint32_t> m_Remaining;
-    std::atomic<uint32_t> m_InputOffset;
+    uint32_t m_InputOffset{0};
+    uint32_t m_RemainingClean{0};
+    uint32_t m_OutputFollowOffset{0};
 
-    uint32_t m_OutPutOffset;
-    std::atomic<uint32_t> m_ReadIndex;
+    std::atomic<uint32_t> m_OutPutOffset{0};
+    std::atomic<uint32_t> m_Remaining{0};
 
     [[no_unique_address]] std::conditional_t<writeProtected, std::atomic_flag, Null> m_WriteFlag;
 
@@ -308,7 +332,7 @@ private:
 
     static R baseFP(Args...) noexcept {
         if constexpr (!std::is_same_v<R, void>) {
-            return std::declval<R>();
+            return R{};
         }
     }
 
@@ -316,5 +340,4 @@ private:
                                             (static_cast<uintptr_t>(std::numeric_limits<uint32_t>::max()) << 32u);
 };
 
-
-#endif //FUNCTIONQUEUE_FUNCTIONQUEUE_MCSP_H
+#endif //FUNCTIONQUEUE_FunctionQueue_MCSP_1_1_H

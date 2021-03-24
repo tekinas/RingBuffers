@@ -1,4 +1,5 @@
 #include "FunctionQueue_SCSP.h"
+#include "FunctionQueue_MCSP.h"
 #include "util.h"
 #include "ComputeCallbackGenerator.h"
 
@@ -7,8 +8,8 @@
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, true, true>;
-
+//using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, true, false>;
+using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, true, false>;
 
 int main(int argc, char **argv) {
     if (argc == 1) {

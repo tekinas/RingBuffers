@@ -1,4 +1,5 @@
 #include "FunctionQueue_SCSP.h"
+#include "FunctionQueue_MCSP.h"
 #include "util.h"
 #include "ComputeCallbackGenerator.h"
 
@@ -8,6 +9,7 @@ using namespace util;
 
 using ComputeFunctionSig = void();
 using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, true, false, false>;
+//using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, true, false>;
 
 struct ComputeCxt {
 private:

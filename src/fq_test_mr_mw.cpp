@@ -1,4 +1,5 @@
 #include "FunctionQueue_SCSP.h"
+#include "FunctionQueue_MCSP.h"
 #include "util.h"
 #include "ComputeCallbackGenerator.h"
 
@@ -7,11 +8,13 @@
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, true, true, false>;
+//using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, true, true, false>;
+using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, true, false>;
+
 
 int main(int argc, char **argv) {
     size_t const rawQueueMemSize =
-            [&] { return (argc >= 2) ? atof(argv[1]) : 1000; }() * 1024 * 1024;
+            [&] { return (argc >= 2) ? atof(argv[1]) : 1024; }() * 1024 * 1024;
 
     auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize + 20);
     println("using buffer of size :", rawQueueMemSize);
