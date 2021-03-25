@@ -18,9 +18,9 @@ void test_lockFreeQueue(LockFreeQueue &rawComputeQueue, CallbackGenerator &callb
 
 int main(int argc, char **argv) {
     size_t const rawQueueMemSize =
-            [&] { return (argc >= 2) ? atof(argv[1]) : 10000 / 1024.0 / 1024.0; }() * 1024 * 1024;
+            [&] { return (argc >= 2) ? atof(argv[1]) : 500 / 1024.0 / 1024.0; }() * 1024 * 1024;
 
-    auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize);
+    auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize + 100);
     println("using buffer of size :", rawQueueMemSize);
 
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();

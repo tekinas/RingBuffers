@@ -144,6 +144,8 @@ public:
             return reinterpret_cast<std::byte *>(functionCxt) - m_Memory + functionCxt->stride;
         }(), std::memory_order_relaxed, std::memory_order_relaxed));
 
+        reader_offset.push_back(out_pos);
+
         auto const invokeAndDestroyFP = reinterpret_cast<InvokeAndDestroy>(functionCxt->fp_offset + fp_base);
         auto const objPtr = reinterpret_cast<std::byte *>(functionCxt) + functionCxt->obj_offset;
 
@@ -262,6 +264,7 @@ private:
                 auto const functionCxt = align<FunctionContext>(m_Memory + m_OutputFollowOffset);
                 auto const fp_offset = functionCxt->fp_offset.load(std::memory_order_acquire);
                 if (fp_offset == 0) {
+                    clean_offset.push_back(m_OutputFollowOffset);
                     m_OutputFollowOffset = reinterpret_cast<std::byte *>(functionCxt) - m_Memory + functionCxt->stride;
                     --m_RemainingClean;
                 } else if (fp_offset == std::numeric_limits<uint32_t>::max()) {
@@ -294,6 +297,7 @@ private:
         if (size_t const buffer_size = m_MemorySize - input_offset;
                 search_ahead && buffer_size) {
             if (auto storage = getAlignedStorage(m_Memory + input_offset, buffer_size)) {
+                writer_offset.push_back(input_offset);
                 incr_input_offset(storage);
                 return storage;
             }
@@ -306,6 +310,7 @@ private:
                     if (search_ahead)
                         new(align<FunctionContext>(m_Memory + input_offset))
                                 std::atomic<uint32_t>{std::numeric_limits<uint32_t>::max()};
+                    writer_offset.push_back(input_offset);
                     incr_input_offset(storage);
                     return storage;
                 }
@@ -324,6 +329,8 @@ private:
 
     std::atomic<uint32_t> m_OutPutOffset{0};
     std::atomic<uint32_t> m_Remaining{0};
+
+    std::vector<uint32_t> writer_offset, reader_offset, clean_offset;
 
     [[no_unique_address]] std::conditional_t<writeProtected, std::atomic_flag, Null> m_WriteFlag;
 
