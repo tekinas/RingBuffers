@@ -14,7 +14,7 @@ using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, true, false>;
 
 int main(int argc, char **argv) {
     size_t const rawQueueMemSize =
-            [&] { return (argc >= 2) ? atof(argv[1]) : 1024; }() * 1024 * 1024;
+            [&] { return (argc >= 2) ? atof(argv[1]) : 1024 + 150; }() * 1024 * 1024;
 
     auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize + 20);
     println("using buffer of size :", rawQueueMemSize);

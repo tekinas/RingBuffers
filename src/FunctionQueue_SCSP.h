@@ -11,7 +11,6 @@
 #include <limits>
 #include <memory>
 #include <functional>
-#include <cstdio>
 
 template<typename T, bool readProtected, bool writeProtected, bool destroyNonInvoked = true>
 class FunctionQueue_SCSP {
@@ -56,17 +55,17 @@ private:
                 stride{stride} {}
 
     public:
-        auto getReadData() noexcept {
+        inline auto getReadData() noexcept {
             return std::tuple{reinterpret_cast<InvokeAndDestroy>(fp_offset + fp_base),
                               reinterpret_cast<std::byte *>(this) + obj_offset, getNextAddr()};
         }
 
-        auto getDestroyData() noexcept {
+        inline auto getDestroyData() noexcept {
             return std::tuple{reinterpret_cast<Destroy>(destroyFp_offset + fp_base),
                               reinterpret_cast<std::byte *>(this) + obj_offset, getNextAddr()};
         }
 
-        auto getNextAddr() noexcept { return reinterpret_cast<std::byte *>(this) + stride; }
+        inline auto getNextAddr() noexcept { return reinterpret_cast<std::byte *>(this) + stride; }
     };
 
     template<typename Callable>
@@ -79,22 +78,22 @@ private:
         Storage(void *fp_ptr, void *obj_ptr) noexcept: fp_ptr{static_cast<FunctionContext *>(fp_ptr)},
                                                        obj_ptr{static_cast<Callable *>(obj_ptr)} {}
 
-        explicit operator bool() const noexcept {
+        inline explicit operator bool() const noexcept {
             return fp_ptr && obj_ptr;
         }
 
         template<typename... CArgs>
-        void construct_callable(CArgs &&... args) const noexcept {
+        inline void construct_callable(CArgs &&... args) const noexcept {
             new(fp_ptr) FunctionContext{Type<Callable>{}, getObjOffset(), getStride()};
             new(obj_ptr) Callable{std::forward<CArgs>(args)...};
         }
 
     private:
-        [[nodiscard]] uint16_t getObjOffset() const noexcept {
+        [[nodiscard]] inline uint16_t getObjOffset() const noexcept {
             return reinterpret_cast<std::byte *>(obj_ptr) - reinterpret_cast<std::byte *>(fp_ptr);
         }
 
-        [[nodiscard]] uint16_t getStride() const noexcept {
+        [[nodiscard]] inline uint16_t getStride() const noexcept {
             return getObjOffset() + sizeof(Callable);
         }
     };
@@ -136,7 +135,7 @@ public:
         }
     }
 
-    explicit operator bool() noexcept {
+    inline /*__attribute__((always_inline))*/ explicit operator bool() noexcept {
         if constexpr (readProtected) {
             if (m_ReadFlag.test_and_set(std::memory_order_relaxed)) return false;
             if (!m_Remaining.load(std::memory_order_acquire)) {
@@ -146,7 +145,7 @@ public:
         } else return m_Remaining.load(std::memory_order_acquire);
     }
 
-    R callAndPop(Args...args) noexcept {
+    inline /*__attribute__((always_inline))*/ R callAndPop(Args...args) noexcept {
         auto const output_offset = m_OutPutOffset.load(std::memory_order_relaxed);
         bool const found_sentinel = output_offset == m_SentinelRead.load(std::memory_order_relaxed);
         if (found_sentinel) m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
@@ -175,7 +174,7 @@ public:
     }
 
     template<typename T>
-    bool push_back(T &&function) noexcept {
+    inline /*__attribute__((always_inline))*/ bool push_back(T &&function) noexcept {
         if constexpr (writeProtected) {
             if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return false;
         }
@@ -202,7 +201,7 @@ public:
     }
 
     template<typename Callable, typename ...CArgs>
-    bool emplace_back(Args &&...args) noexcept {
+    inline bool emplace_back(Args &&...args) noexcept {
         if constexpr (writeProtected) {
             if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return false;
         }
@@ -226,7 +225,7 @@ public:
         return true;
     }
 
-    [[nodiscard]] uint32_t size() const noexcept { return m_Remaining.load(std::memory_order_relaxed); }
+    [[nodiscard]] inline uint32_t size() const noexcept { return m_Remaining.load(std::memory_order_relaxed); }
 
 private:
 
@@ -268,7 +267,7 @@ private:
     }
 
     template<typename T>
-    Storage<T> getMemory() noexcept {
+    inline Storage<T> getMemory() noexcept {
         auto getAlignedStorage = [](void *buffer, size_t size) noexcept -> Storage<T> {
             auto const fp_storage = align<FunctionContext>(buffer, size);
             buffer = static_cast<std::byte *>(buffer) + sizeof(FunctionContext);
