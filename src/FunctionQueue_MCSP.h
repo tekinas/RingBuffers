@@ -5,6 +5,14 @@
 #ifndef FUNCTIONQUEUE_FunctionQueue_MCSP_1_1_H
 #define FUNCTIONQUEUE_FunctionQueue_MCSP_1_1_H
 
+#include <atomic>
+#include <cstring>
+#include <cstddef>
+#include <limits>
+#include <memory>
+#include <functional>
+#include <cstdio>
+
 template<typename T, bool writeProtected, bool destroyNonInvoked = true>
 class FunctionQueue_MCSP {
 };
@@ -14,6 +22,7 @@ class FunctionQueue_MCSP<R(Args...), writeProtected, destroyNonInvoked> {
 private:
 
     using InvokeAndDestroy = R(*)(void *obj_ptr, Args...) noexcept;
+    using Destroy = void (*)(void *obj_ptr) noexcept;
 
     class Null {
     public:
@@ -29,6 +38,7 @@ private:
     struct Storage;
 
     struct FunctionContext {
+    private:
         std::atomic<uint32_t> fp_offset;
         [[no_unique_address]] std::conditional_t<destroyNonInvoked, uint32_t const, Null> destroyFp_offset;
         uint16_t const obj_offset;
@@ -37,6 +47,27 @@ private:
         template<typename U>
         friend
         class Storage;
+
+    public:
+        auto getReadData() noexcept {
+            return std::tuple{reinterpret_cast<InvokeAndDestroy>(fp_offset.load(std::memory_order_relaxed) + fp_base),
+                              reinterpret_cast<std::byte *>(this) + obj_offset, getNextAddr()};
+        }
+
+        auto getDestroyData() noexcept {
+            return std::tuple{reinterpret_cast<Destroy>(destroyFp_offset + fp_base),
+                              reinterpret_cast<std::byte *>(this) + obj_offset, getNextAddr()};
+        }
+
+        auto getNextAddr() noexcept { return reinterpret_cast<std::byte *>(this) + stride; }
+
+        void release() noexcept {
+            fp_offset.store(0, std::memory_order_release);
+        }
+
+        [[nodiscard]] bool isReleased() const noexcept {
+            return fp_offset.load(std::memory_order_acquire) == 0;
+        }
 
     private:
         template<typename Callable>
@@ -86,37 +117,32 @@ public:
 
     ~FunctionQueue_MCSP() noexcept {
         if constexpr (destroyNonInvoked) {
-            using Destroy = void (*)(void *obj_ptr) noexcept;
-
             auto remaining = m_Remaining.load(std::memory_order_acquire);
 
             if (!remaining) return;
 
-            auto const input_pos = m_InputOffset;
             auto output_pos = m_OutputFollowOffset;
 
             auto destroyAndForward = [&](auto functionCxt) noexcept {
-                reinterpret_cast<Destroy>(fp_base + functionCxt->destroyFp_offset)(
-                        reinterpret_cast<std::byte *>(functionCxt) + functionCxt->obj_offset);
-                output_pos = reinterpret_cast<std::byte *>(functionCxt) - m_Memory + functionCxt->stride;
+                auto const[dfp, objPtr, nextAddr] = functionCxt->getDestroyData();
+                dfp(objPtr);
+                output_pos = nextAddr - m_Memory;
             };
 
-            if (output_pos >= input_pos) {
-                while (remaining) {
-                    auto const functionCxtPtr = align<FunctionContext>(m_Memory + output_pos);
-                    if (auto const fp_offset = functionCxtPtr->fp_offset.load(std::memory_order_acquire);
-                            fp_offset != std::numeric_limits<uint32_t>::max()) {
-                        if (fp_offset)
-                            destroyAndForward(functionCxtPtr);
-                        --remaining;
-                    } else break;
+            if (auto const sentinel = m_SentinelRead.load(std::memory_order_relaxed); sentinel != NO_SENTINEL) {
+                while (output_pos != sentinel) {
+                    auto const functionCxt = align<FunctionContext>(m_Memory + output_pos);
+                    if (!functionCxt->isReleased())
+                        destroyAndForward(functionCxt);
+                    --remaining;
                 }
+                output_pos = 0;
             }
 
             while (remaining) {
-                auto const functionCxtPtr = align<FunctionContext>(m_Memory + output_pos);
-                if (functionCxtPtr->fp_offset.load(std::memory_order_acquire))
-                    destroyAndForward(functionCxtPtr);
+                auto const functionCxt = align<FunctionContext>(m_Memory + output_pos);
+                if (!functionCxt->isReleased())
+                    destroyAndForward(functionCxt);
                 --remaining;
             }
         }
@@ -134,31 +160,25 @@ public:
     R callAndPop(Args...args) noexcept {
         FunctionContext *functionCxt;
         auto out_pos = m_OutPutOffset.load(std::memory_order::relaxed);
+        bool found_sentinel;
         while (!m_OutPutOffset.compare_exchange_weak(out_pos, [&, out_pos] {
-            functionCxt = align<FunctionContext>(m_Memory + out_pos);
-
-            if (functionCxt->fp_offset.load(std::memory_order_relaxed) == std::numeric_limits<uint32_t>::max()) {
+            if ((found_sentinel = (out_pos == m_SentinelRead.load(std::memory_order_relaxed)))) {
                 functionCxt = align<FunctionContext>(m_Memory);
-            }
+            } else functionCxt = align<FunctionContext>(m_Memory + out_pos);
 
-            return reinterpret_cast<std::byte *>(functionCxt) - m_Memory + functionCxt->stride;
+            return functionCxt->getNextAddr() - m_Memory;
         }(), std::memory_order_relaxed, std::memory_order_relaxed));
 
-        reader_offset.push_back(out_pos);
-
-        auto const invokeAndDestroyFP = reinterpret_cast<InvokeAndDestroy>(functionCxt->fp_offset + fp_base);
-        auto const objPtr = reinterpret_cast<std::byte *>(functionCxt) + functionCxt->obj_offset;
-
-        auto after_call = [=] {
-            functionCxt->fp_offset.store(0, std::memory_order_release);
-        };
+        auto const[invokeAndDestroyFP, objPtr, stride]= functionCxt->getReadData();
 
         if constexpr (std::is_same_v<void, R>) {
             invokeAndDestroyFP(objPtr, args...);
-            after_call();
+            functionCxt->release();
+            if (found_sentinel) m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
         } else {
             auto &&result{invokeAndDestroyFP(objPtr, args...)};
-            after_call();
+            functionCxt->release();
+            if (found_sentinel) m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
             return std::forward<decltype(result)>(result);
         }
     }
@@ -260,17 +280,24 @@ private:
 
     void cleanMemory() noexcept {
         if (m_RemainingClean) {
-            while (m_RemainingClean) {
-                auto const functionCxt = align<FunctionContext>(m_Memory + m_OutputFollowOffset);
-                auto const fp_offset = functionCxt->fp_offset.load(std::memory_order_acquire);
-                if (fp_offset == 0) {
-                    clean_offset.push_back(m_OutputFollowOffset);
-                    m_OutputFollowOffset = reinterpret_cast<std::byte *>(functionCxt) - m_Memory + functionCxt->stride;
-                    --m_RemainingClean;
-                } else if (fp_offset == std::numeric_limits<uint32_t>::max()) {
-                    m_OutputFollowOffset = 0;
-                } else break;
+            auto followOffset = m_OutputFollowOffset;
+            auto remaining = m_RemainingClean;
+            while (remaining) {
+                if (followOffset == m_SentinelFollow) {
+                    if (m_SentinelRead.load(std::memory_order_relaxed) == NO_SENTINEL) {
+                        followOffset = 0;
+                        m_SentinelFollow = NO_SENTINEL;
+                    }
+                } else if (auto const functionCxt = align<FunctionContext>(m_Memory + followOffset);
+                        functionCxt->isReleased()) {
+                    followOffset = functionCxt->getNextAddr() - m_Memory;
+                    --remaining;
+                } else {
+                    break;
+                }
             }
+            m_RemainingClean = remaining;
+            m_OutputFollowOffset = followOffset;
         }
     }
 
@@ -297,7 +324,6 @@ private:
         if (size_t const buffer_size = m_MemorySize - input_offset;
                 search_ahead && buffer_size) {
             if (auto storage = getAlignedStorage(m_Memory + input_offset, buffer_size)) {
-                writer_offset.push_back(input_offset);
                 incr_input_offset(storage);
                 return storage;
             }
@@ -307,10 +333,10 @@ private:
             auto const mem = search_ahead ? 0 : input_offset;
             if (size_t const buffer_size = output_offset - mem) {
                 if (auto storage = getAlignedStorage(m_Memory + mem, buffer_size)) {
-                    if (search_ahead)
-                        new(align<FunctionContext>(m_Memory + input_offset))
-                                std::atomic<uint32_t>{std::numeric_limits<uint32_t>::max()};
-                    writer_offset.push_back(input_offset);
+                    if (search_ahead) {
+                        m_SentinelRead.store(input_offset, std::memory_order_relaxed);
+                        m_SentinelFollow = input_offset;
+                    }
                     incr_input_offset(storage);
                     return storage;
                 }
@@ -323,14 +349,17 @@ private:
     }
 
 private:
+    static constexpr uint32_t NO_SENTINEL{std::numeric_limits<uint32_t>::max()};
+
     uint32_t m_InputOffset{0};
     uint32_t m_RemainingClean{0};
     uint32_t m_OutputFollowOffset{0};
+    uint32_t m_SentinelFollow{NO_SENTINEL};
 
     std::atomic<uint32_t> m_OutPutOffset{0};
     std::atomic<uint32_t> m_Remaining{0};
+    std::atomic<uint32_t> m_SentinelRead{NO_SENTINEL};
 
-    std::vector<uint32_t> writer_offset, reader_offset, clean_offset;
 
     [[no_unique_address]] std::conditional_t<writeProtected, std::atomic_flag, Null> m_WriteFlag;
 

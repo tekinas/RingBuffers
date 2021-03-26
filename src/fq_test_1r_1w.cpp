@@ -10,17 +10,17 @@ using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
 //using LockFreeQueue = FunctionQueue<true, true, ComputeFunctionSig>;
-//using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false>;
-using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false>;
+using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
+//using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false>;
 
 
 void test_lockFreeQueue(LockFreeQueue &rawComputeQueue, CallbackGenerator &callbackGenerator, size_t functions);
 
 int main(int argc, char **argv) {
     size_t const rawQueueMemSize =
-            [&] { return (argc >= 2) ? atof(argv[1]) : 500 / 1024.0 / 1024.0; }() * 1024 * 1024;
+            [&] { return (argc >= 2) ? atof(argv[1]) : 10000 / 1024.0 / 1024.0; }() * 1024 * 1024;
 
-    auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize + 100);
+    auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize);
     println("using buffer of size :", rawQueueMemSize);
 
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
