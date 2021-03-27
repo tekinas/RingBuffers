@@ -9,7 +9,7 @@ using namespace util;
 
 using ComputeFunctionSig = void();
 using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, true, false, false>;
-//using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, true, false>;
+//using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, true, false, false>;
 
 struct ComputeCxt {
 private:

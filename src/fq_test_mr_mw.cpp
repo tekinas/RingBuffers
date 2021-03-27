@@ -9,7 +9,7 @@ using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
 //using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, true, true, false>;
-using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, true, false>;
+using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, true, false, false>;
 
 
 int main(int argc, char **argv) {

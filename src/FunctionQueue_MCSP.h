@@ -190,7 +190,7 @@ public:
             return out_pos.getNext(functionCxt->getNextAddr() - m_Memory);
         }(), std::memory_order_relaxed, std::memory_order_relaxed));
 
-        auto const[invokeAndDestroyFP, objPtr, stride]= functionCxt->getReadData();
+        auto const[invokeAndDestroyFP, objPtr, nextAddr]= functionCxt->getReadData();
 
         if constexpr (std::is_same_v<void, R>) {
             invokeAndDestroyFP(objPtr, args...);
