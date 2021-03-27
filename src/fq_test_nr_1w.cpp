@@ -33,10 +33,12 @@ int main(int argc, char **argv) {
     result_vector.reserve(functions);
 
     std::mutex result_mut;
+    StartFlag startFlag;
 
     std::vector<std::jthread> reader_threads;
-    for (auto t = num_threads; t--;)
+    for (auto t = num_threads; t--;) {
         reader_threads.emplace_back([&, str{"thread " + std::to_string(t + 1)}] {
+            startFlag.wait();
             std::vector<size_t> res_vec;
             res_vec.reserve(11 * functions / num_threads / 10);
             {
@@ -51,13 +53,15 @@ int main(int argc, char **argv) {
             }
 
             println("numbers computed : ", res_vec.size());
-            std::cout.flush();
+            std::cout << std::flush;
 
             std::lock_guard lock{result_mut};
             result_vector.insert(result_vector.end(), res_vec.begin(), res_vec.end());
         });
+    }
 
-    [=, &rawComputeQueue] {
+    [=, &rawComputeQueue, &startFlag] {
+        startFlag.start();
         auto func = functions;
         CallbackGenerator callbackGenerator{seed};
         while (func) {

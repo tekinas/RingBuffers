@@ -21,15 +21,28 @@
   <component name="ChangeListManager">
     <list default="true" id="208b6fd8-6760-4f44-bd15-2f487cfe8997" name="Default Changelist" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/FunctionQueue_MCSP.h" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/FunctionQueue_SCSP.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/FunctionQueue_SCSP.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/linux/clang/fq_test_1r_1w" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/clang/fq_test_1r_1w" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/linux/clang/fq_test_1r_nw" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/clang/fq_test_1r_nw" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/linux/clang/fq_test_callNDelete" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/clang/fq_test_callNDelete" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/linux/clang/fq_test_call_only" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/clang/fq_test_call_only" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/linux/clang/fq_test_mr_mw" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/clang/fq_test_mr_mw" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/linux/clang/fq_test_nr_1w" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/clang/fq_test_nr_1w" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/linux/clang/fq_test_nr_nw" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/clang/fq_test_nr_nw" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/linux/clang/fq_test_nr_nw_asio" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/clang/fq_test_nr_nw_asio" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/linux/gcc/fq_test_1r_1w" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/gcc/fq_test_1r_1w" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/linux/gcc/fq_test_1r_nw" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/gcc/fq_test_1r_nw" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/linux/gcc/fq_test_callNDelete" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/gcc/fq_test_callNDelete" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/linux/gcc/fq_test_call_only" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/gcc/fq_test_call_only" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/linux/gcc/fq_test_mr_mw" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/gcc/fq_test_mr_mw" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/linux/gcc/fq_test_nr_1w" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/gcc/fq_test_nr_1w" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/linux/gcc/fq_test_nr_nw" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/gcc/fq_test_nr_nw" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/linux/gcc/fq_test_nr_nw_asio" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/gcc/fq_test_nr_nw_asio" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/fq_test_1r_1w.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/fq_test_1r_1w.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/fq_test_1r_nw.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/fq_test_1r_nw.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/fq_test_callNDelete.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/fq_test_callNDelete.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/fq_test_call_only.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/fq_test_call_only.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/fq_test_mr_mw.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/fq_test_mr_mw.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/fq_test_nr_1w.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/fq_test_nr_1w.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/fq_test_nr_nw.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/fq_test_nr_nw.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/fq_test_nr_nw_asio.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/fq_test_nr_nw_asio.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/util.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/util.h" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -70,7 +83,7 @@
     <property name="restartRequiresConfirmation" value="false" />
     <property name="settings.editor.selected.configurable" value="CPPToolchains" />
   </component>
-  <component name="RunManager" selected="CMake Application.fq_test_nr_1w">
+  <component name="RunManager" selected="CMake Application.fq_test_nr_nw_asio">
     <configuration name="fq_test_1r_1w" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="FunctionQueue" TARGET_NAME="fq_test_1r_1w" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="FunctionQueue" RUN_TARGET_NAME="fq_test_1r_1w">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />

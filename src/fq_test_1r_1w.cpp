@@ -14,7 +14,8 @@ using ComputeFunctionSig = size_t(size_t);
 using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false>;
 
 
-void test_lockFreeQueue(LockFreeQueue &rawComputeQueue, CallbackGenerator &callbackGenerator, size_t functions);
+void
+test_lockFreeQueue(LockFreeQueue &rawComputeQueue, CallbackGenerator &callbackGenerator, size_t functions) noexcept;
 
 int main(int argc, char **argv) {
     size_t const rawQueueMemSize =
@@ -36,8 +37,12 @@ int main(int argc, char **argv) {
     test_lockFreeQueue(rawComputeQueue, callbackGenerator, functions);
 }
 
-void test_lockFreeQueue(LockFreeQueue &rawComputeQueue, CallbackGenerator &callbackGenerator, size_t functions) {
-    std::thread reader{[&] {
+void
+test_lockFreeQueue(LockFreeQueue &rawComputeQueue, CallbackGenerator &callbackGenerator, size_t functions) noexcept {
+    StartFlag start_flag;
+
+    std::jthread reader{[&] {
+        start_flag.wait();
         size_t num{0}, res{0};
         {
             Timer timer{"reader"};
@@ -54,7 +59,8 @@ void test_lockFreeQueue(LockFreeQueue &rawComputeQueue, CallbackGenerator &callb
         println("result :", num, '\n');
     }};
 
-    std::thread writer{[&] {
+    std::jthread writer{[&] {
+        start_flag.wait();
         auto func = functions;
         while (func) {
             callbackGenerator.addCallback(
@@ -69,6 +75,5 @@ void test_lockFreeQueue(LockFreeQueue &rawComputeQueue, CallbackGenerator &callb
         while (!rawComputeQueue.push_back([](auto) { return std::numeric_limits<size_t>::max(); }));
     }};
 
-    writer.join();
-    reader.join();
+    start_flag.start();
 }

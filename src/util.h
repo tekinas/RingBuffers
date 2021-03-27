@@ -356,6 +356,20 @@ namespace util {
             println(name, " :", std::chrono::duration_cast<print_duartion>(clock::now() - start).count(), " seconds");
         }
     };
+
+    class StartFlag {
+    public:
+        void wait() const noexcept {
+            while (!m_StartFlag.load(std::memory_order_relaxed));
+        }
+
+        void start() noexcept {
+            m_StartFlag.store(true, std::memory_order_relaxed);
+        }
+
+    private:
+        std::atomic<bool> m_StartFlag{false};
+    };
 }
 
 #endif  // CPP_TEST_UTIL_H

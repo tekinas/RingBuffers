@@ -8,8 +8,8 @@
 using namespace util;
 
 using ComputeFunctionSig = void();
-//using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, true, false, false>;
-using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, true, false>;
+using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, true, false, false>;
+//using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, true, false>;
 
 struct ComputeCxt {
 private:
@@ -74,12 +74,9 @@ int main(int argc, char **argv) {
                 std::make_unique<ComputeCxt>(seed, functions, "compute chain " + std::to_string(t + 1)),
                 &rawComputeQueue);
 
-    std::vector<std::thread> threads;
+    std::vector<std::jthread> threads;
     for (auto t = num_threads; t--;)
-        threads.emplace_back([&rawComputeQueue] {
+        threads.emplace_back([&] {
             while (rawComputeQueue) rawComputeQueue.callAndPop();
         });
-
-    for (auto &&t:threads)
-        t.join();
 }

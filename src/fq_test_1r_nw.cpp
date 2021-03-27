@@ -17,7 +17,7 @@ int main(int argc, char **argv) {
     }
 
     size_t const rawQueueMemSize = [&] { return (argc >= 2) ? atof(argv[1]) : 10; }() * 1024 * 1024;
-    auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize + 10);
+    auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize);
     println("using buffer of size :", rawQueueMemSize);
 
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
@@ -30,10 +30,12 @@ int main(int argc, char **argv) {
     println("total num_threads :", num_threads);
 
     LockFreeQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
+    StartFlag startFlag;
 
-    std::vector<std::thread> writer_threads;
-    for (auto t = num_threads; t--;)
-        writer_threads.emplace_back([=, &rawComputeQueue] {
+    std::vector<std::jthread> writer_threads;
+    for (auto t = num_threads; t--;) {
+        writer_threads.emplace_back([=, &rawComputeQueue, &startFlag] {
+            startFlag.wait();
             auto func = functions;
             CallbackGenerator callbackGenerator{seed};
             while (func) {
@@ -48,10 +50,12 @@ int main(int argc, char **argv) {
 
             while (!rawComputeQueue.push_back([](auto) { return std::numeric_limits<size_t>::max(); }));
         });
+    }
 
     std::vector<size_t> result_vector;
     result_vector.reserve(num_threads * functions);
     {
+        startFlag.start();
         Timer timer{"reader thread "};
         auto threads = num_threads;
 
@@ -64,8 +68,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    for (auto &&t:writer_threads)
-        t.join();
+    writer_threads.clear();
 
     println("result vector size : ", result_vector.size());
     print("sorting result vector .... ");

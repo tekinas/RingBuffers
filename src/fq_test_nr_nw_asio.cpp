@@ -69,14 +69,11 @@ int main(int argc, char **argv) {
                 std::make_unique<ComputeCxt>(seed, functions, "compute chain " + std::to_string(t + 1)),
                 &rawComputeQueue);
 
-    std::vector<std::thread> threads;
+    std::vector<std::jthread> threads;
     for (auto t = num_threads; t--;)
         threads.emplace_back([&rawComputeQueue] {
             rawComputeQueue.run();
         });
-
-    for (auto &&t:threads)
-        t.join();
 }
 
 #include <boost/throw_exception.hpp>
