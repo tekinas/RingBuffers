@@ -12,12 +12,12 @@
 #include <memory>
 #include <functional>
 
-template<typename T, bool readProtected, bool writeProtected, bool destroyNonInvoked = true>
+template<typename T, bool isReadProtected, bool isWriteProtected, bool destroyNonInvoked = true>
 class FunctionQueue_SCSP {
 };
 
-template<typename R, typename ...Args, bool readProtected, bool writeProtected, bool destroyNonInvoked>
-class FunctionQueue_SCSP<R(Args...), readProtected, writeProtected, destroyNonInvoked> {
+template<typename R, typename ...Args, bool isReadProtected, bool isWriteProtected, bool destroyNonInvoked>
+class FunctionQueue_SCSP<R(Args...), isReadProtected, isWriteProtected, destroyNonInvoked> {
 private:
 
     using InvokeAndDestroy = R(*)(void *obj_ptr, Args...) noexcept;
@@ -101,8 +101,8 @@ private:
 public:
     FunctionQueue_SCSP(void *memory, std::size_t size) noexcept: m_Memory{static_cast<std::byte *const>(memory)},
                                                                  m_MemorySize{static_cast<uint32_t>(size)} {
-        if constexpr (readProtected) m_ReadFlag.clear(std::memory_order_relaxed);
-        if constexpr (writeProtected) m_WriteFlag.clear(std::memory_order_relaxed);
+        if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order_relaxed);
+        if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
         memset(m_Memory, 0, m_MemorySize);
     }
 
@@ -136,7 +136,7 @@ public:
     }
 
     inline /*__attribute__((always_inline))*/ explicit operator bool() noexcept {
-        if constexpr (readProtected) {
+        if constexpr (isReadProtected) {
             if (m_ReadFlag.test_and_set(std::memory_order_relaxed)) return false;
             if (!m_Remaining.load(std::memory_order_acquire)) {
                 m_ReadFlag.clear(std::memory_order_relaxed);
@@ -156,7 +156,7 @@ public:
 
         auto decr_rem_incr_output_offset = [&, nextOffset{nextAddr - m_Memory}] {
             m_Remaining.fetch_sub(1, std::memory_order_relaxed);
-            if constexpr (readProtected) {
+            if constexpr (isReadProtected) {
                 m_OutPutOffset.store(nextOffset, std::memory_order_relaxed);
                 m_ReadFlag.clear(std::memory_order_release);
             } else
@@ -175,7 +175,7 @@ public:
 
     template<typename T>
     inline /*__attribute__((always_inline))*/ bool push_back(T &&function) noexcept {
-        if constexpr (writeProtected) {
+        if constexpr (isWriteProtected) {
             if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return false;
         }
 
@@ -183,7 +183,7 @@ public:
 
         auto const storage = getMemory<Callable>();
         if (!storage) {
-            if constexpr (writeProtected) {
+            if constexpr (isWriteProtected) {
                 m_WriteFlag.clear(std::memory_order_release);
             }
             return false;
@@ -193,7 +193,7 @@ public:
 
         m_Remaining.fetch_add(1, std::memory_order_release);
 
-        if constexpr (writeProtected) {
+        if constexpr (isWriteProtected) {
             m_WriteFlag.clear(std::memory_order_release);
         }
 
@@ -202,13 +202,13 @@ public:
 
     template<typename Callable, typename ...CArgs>
     inline bool emplace_back(Args &&...args) noexcept {
-        if constexpr (writeProtected) {
+        if constexpr (isWriteProtected) {
             if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return false;
         }
 
         auto const storage = getMemory<Callable>();
         if (!storage) {
-            if constexpr (writeProtected) {
+            if constexpr (isWriteProtected) {
                 m_WriteFlag.clear(std::memory_order_release);
             }
             return false;
@@ -218,7 +218,7 @@ public:
 
         m_Remaining.fetch_add(1, std::memory_order_release);
 
-        if constexpr (writeProtected) {
+        if constexpr (isWriteProtected) {
             m_WriteFlag.clear(std::memory_order_release);
         }
 
@@ -318,8 +318,8 @@ private:
     std::atomic<uint32_t> m_SentinelRead{NO_SENTINEL};
     std::atomic<uint32_t> m_Remaining{0};
 
-    [[no_unique_address]] std::conditional_t<writeProtected, std::atomic_flag, Null> m_WriteFlag;
-    [[no_unique_address]] std::conditional_t<readProtected, std::atomic_flag, Null> m_ReadFlag;
+    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag;
+    [[no_unique_address]] std::conditional_t<isReadProtected, std::atomic_flag, Null> m_ReadFlag;
 
     uint32_t const m_MemorySize;
     std::byte *const m_Memory;

@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD 20)
 
 if (UNIX)
     set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} "-fno-rtti -fno-exceptions")
-    link_libraries(pthread)
+    link_libraries(pthread atomic)
 elseif (WIN32)
     set(LIB_DIR "C:/Users/Aniket Bisht/Documents/Libraries/Windows")  # set the library directory for Windows ::::
     link_libraries(ws2_32)

@@ -11,13 +11,14 @@
 #include <limits>
 #include <memory>
 #include <functional>
+#include <mutex>
 
-template<typename T, bool writeProtected, bool destroyNonInvoked = true>
+template<typename T, bool isWriteProtected, bool isIndexed = false, bool destroyNonInvoked = true>
 class FunctionQueue_MCSP {
 };
 
-template<typename R, typename ...Args, bool writeProtected, bool destroyNonInvoked>
-class FunctionQueue_MCSP<R(Args...), writeProtected, destroyNonInvoked> {
+template<typename R, typename ...Args, bool isWriteProtected, bool isIndexed, bool destroyNonInvoked>
+class FunctionQueue_MCSP<R(Args...), isWriteProtected, isIndexed, destroyNonInvoked> {
 private:
 
     using InvokeAndDestroy = R(*)(void *obj_ptr, Args...) noexcept;
@@ -27,6 +28,27 @@ private:
     public:
         template<typename ...T>
         explicit Null(T &&...) noexcept {}
+    };
+
+    struct Offset {
+    private:
+        uint32_t offset{};
+        [[no_unique_address]] std::conditional_t<isIndexed, uint32_t, Null> index{};
+
+    public:
+        Offset() noexcept = default;
+
+        auto get() const noexcept { return offset; }
+
+        Offset getNext(uint32_t _offset) const noexcept {
+            Offset o;
+            o.offset = _offset;
+            if constexpr (isIndexed) {
+                o.index = index + 1;
+            }
+
+            return o;
+        }
     };
 
     template<typename>
@@ -110,7 +132,7 @@ private:
 public:
     FunctionQueue_MCSP(void *memory, std::size_t size) noexcept: m_Memory{static_cast<std::byte *const>(memory)},
                                                                  m_MemorySize{static_cast<uint32_t>(size)} {
-        if constexpr (writeProtected) m_WriteFlag.clear(std::memory_order_relaxed);
+        if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
         memset(m_Memory, 0, m_MemorySize);
     }
 
@@ -161,11 +183,11 @@ public:
         auto out_pos = m_OutPutOffset.load(std::memory_order::relaxed);
         bool found_sentinel;
         while (!m_OutPutOffset.compare_exchange_weak(out_pos, [&, out_pos] {
-            if ((found_sentinel = (out_pos == m_SentinelRead.load(std::memory_order_relaxed)))) {
+            if ((found_sentinel = (out_pos.get() == m_SentinelRead.load(std::memory_order_relaxed)))) {
                 functionCxt = align<FunctionContext>(m_Memory);
-            } else functionCxt = align<FunctionContext>(m_Memory + out_pos);
+            } else functionCxt = align<FunctionContext>(m_Memory + out_pos.get());
 
-            return functionCxt->getNextAddr() - m_Memory;
+            return out_pos.getNext(functionCxt->getNextAddr() - m_Memory);
         }(), std::memory_order_relaxed, std::memory_order_relaxed));
 
         auto const[invokeAndDestroyFP, objPtr, stride]= functionCxt->getReadData();
@@ -184,7 +206,7 @@ public:
 
     template<typename T>
     inline /*__attribute__((always_inline))*/ bool push_back(T &&function) noexcept {
-        if constexpr (writeProtected) {
+        if constexpr (isWriteProtected) {
             if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return false;
         }
 
@@ -192,7 +214,7 @@ public:
 
         auto const storage = getMemory<Callable>();
         if (!storage) {
-            if constexpr (writeProtected) {
+            if constexpr (isWriteProtected) {
                 m_WriteFlag.clear(std::memory_order_release);
             }
             return false;
@@ -203,7 +225,7 @@ public:
         m_Remaining.fetch_add(1, std::memory_order_release);
 
         ++m_RemainingClean;
-        if constexpr (writeProtected) {
+        if constexpr (isWriteProtected) {
             m_WriteFlag.clear(std::memory_order_release);
         }
 
@@ -212,13 +234,13 @@ public:
 
     template<typename Callable, typename ...CArgs>
     inline bool emplace_back(Args &&...args) noexcept {
-        if constexpr (writeProtected) {
+        if constexpr (isWriteProtected) {
             if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return false;
         }
 
         auto const storage = getMemory<Callable>();
         if (!storage) {
-            if constexpr (writeProtected) {
+            if constexpr (isWriteProtected) {
                 m_WriteFlag.clear(std::memory_order_release);
             }
             return false;
@@ -229,7 +251,7 @@ public:
         ++m_RemainingClean;
         m_Remaining.fetch_add(1, std::memory_order_release);
 
-        if constexpr (writeProtected) {
+        if constexpr (isWriteProtected) {
             m_WriteFlag.clear(std::memory_order_release);
         }
 
@@ -355,12 +377,11 @@ private:
     uint32_t m_OutputFollowOffset{0};
     uint32_t m_SentinelFollow{NO_SENTINEL};
 
-    std::atomic<uint32_t> m_OutPutOffset{0};
+    std::atomic<Offset> m_OutPutOffset{};
     std::atomic<uint32_t> m_Remaining{0};
     std::atomic<uint32_t> m_SentinelRead{NO_SENTINEL};
 
-
-    [[no_unique_address]] std::conditional_t<writeProtected, std::atomic_flag, Null> m_WriteFlag;
+    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag;
 
     uint32_t const m_MemorySize;
     std::byte *const m_Memory;
