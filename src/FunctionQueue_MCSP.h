@@ -30,26 +30,24 @@ private:
         explicit Null(T &&...) noexcept {}
     };
 
-    struct Offset {
+    struct IndexedOffset {
     private:
         uint32_t offset{};
-        [[no_unique_address]] std::conditional_t<isIndexed, uint32_t, Null> index{};
+        uint32_t index{};
+
+        IndexedOffset(uint32_t offset, uint32_t index) noexcept: offset{offset}, index{index} {}
 
     public:
-        Offset() noexcept = default;
+        IndexedOffset() noexcept = default;
 
-        auto get() const noexcept { return offset; }
+        explicit operator uint32_t() const noexcept { return offset; }
 
-        Offset getNext(uint32_t _offset) const noexcept {
-            Offset o;
-            o.offset = _offset;
-            if constexpr (isIndexed) {
-                o.index = index + 1;
-            }
-
-            return o;
+        inline IndexedOffset getNext(uint32_t _offset) const noexcept {
+            return {_offset, index + 1};
         }
     };
+
+    using OffsetType = std::conditional_t<isIndexed, IndexedOffset, uint32_t>;
 
     template<typename>
     class Type {
@@ -183,14 +181,16 @@ public:
         auto out_pos = m_OutPutOffset.load(std::memory_order::relaxed);
         bool found_sentinel;
         while (!m_OutPutOffset.compare_exchange_weak(out_pos, [&, out_pos] {
-            if ((found_sentinel = (out_pos.get() == m_SentinelRead.load(std::memory_order_relaxed)))) {
+            if ((found_sentinel = (uint32_t{out_pos} == m_SentinelRead.load(std::memory_order_relaxed)))) {
                 functionCxt = align<FunctionContext>(m_Memory);
-            } else functionCxt = align<FunctionContext>(m_Memory + out_pos.get());
+            } else functionCxt = align<FunctionContext>(m_Memory + uint32_t{out_pos});
 
-            return out_pos.getNext(functionCxt->getNextAddr() - m_Memory);
+            auto const nextOffset = functionCxt->getNextAddr() - m_Memory;
+            if constexpr (isIndexed) { return out_pos.getNext(nextOffset); }
+            else return nextOffset;
         }(), std::memory_order_relaxed, std::memory_order_relaxed));
 
-        auto const[invokeAndDestroyFP, objPtr, nextAddr]= functionCxt->getReadData();
+        auto const[invokeAndDestroyFP, objPtr, nextAddr] = functionCxt->getReadData();
 
         if constexpr (std::is_same_v<void, R>) {
             invokeAndDestroyFP(objPtr, args...);
@@ -377,7 +377,7 @@ private:
     uint32_t m_OutputFollowOffset{0};
     uint32_t m_SentinelFollow{NO_SENTINEL};
 
-    std::atomic<Offset> m_OutPutOffset{};
+    std::atomic<OffsetType> m_OutPutOffset{};
     std::atomic<uint32_t> m_Remaining{0};
     std::atomic<uint32_t> m_SentinelRead{NO_SENTINEL};
 

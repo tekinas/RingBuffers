@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD 20)
 
 if (UNIX)
     set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} "-fno-rtti -fno-exceptions")
-    link_libraries(pthread atomic)
+    link_libraries(pthread)
 elseif (WIN32)
     set(LIB_DIR "C:/Users/Aniket Bisht/Documents/Libraries/Windows")  # set the library directory for Windows ::::
     link_libraries(ws2_32)
@@ -45,3 +45,7 @@ add_executable(fq_test_nr_nw src/fq_test_nr_nw.cpp)
 add_executable(fq_test_nr_1w src/fq_test_nr_1w.cpp)
 add_executable(fq_test_1r_nw src/fq_test_1r_nw.cpp)
 add_executable(fq_test_mr_mw src/fq_test_mr_mw.cpp)
+
+if (UNIX)
+    target_link_libraries(fq_test_nr_1w PRIVATE atomic)
+endif ()
