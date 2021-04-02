@@ -12,10 +12,12 @@ using ComputeFunctionSig = size_t(size_t);
 using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, true, false>;
 
 int main(int argc, char **argv) {
+    if (argc == 1) {
+        println("usage : ./fq_test_nr_1w <buffer_size> <seed> <functions> <threads>");
+    }
+
     size_t const rawQueueMemSize =
             [&] { return (argc >= 2) ? atof(argv[1]) : 10000 / 1024.0 / 1024.0; }() * 1024 * 1024;
-
-    auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize + 10);
     println("using buffer of size :", rawQueueMemSize);
 
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
@@ -27,6 +29,7 @@ int main(int argc, char **argv) {
     size_t const num_threads = [&] { return (argc >= 5) ? atol(argv[4]) : std::thread::hardware_concurrency(); }();
     println("total num_threads :", num_threads);
 
+    auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize + 10);
     LockFreeQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
 
     std::vector<size_t> result_vector;

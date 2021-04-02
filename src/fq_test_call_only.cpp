@@ -18,11 +18,15 @@ using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false, false
 using folly::Function;
 
 int main(int argc, char **argv) {
-    size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
-    println("using seed :", seed);
+    if (argc == 1) {
+        println("usage : ./fq_test_call_only <buffer_size> <seed>");
+    }
 
     size_t const rawQueueMemSize = [&] { return (argc >= 2) ? atof(argv[1]) : 500.0; }() * 1024 * 1024;
     println("using buffer of size :", rawQueueMemSize);
+
+    size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
+    println("using seed :", seed);
 
     auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize);
     LockFreeQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};

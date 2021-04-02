@@ -13,10 +13,12 @@ using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, true, false, false>
 
 
 int main(int argc, char **argv) {
+    if (argc == 1) {
+        println("usage : ./fq_test_mr_mw <buffer_size> <seed> <functions> <writer_threads> <reader_threads>");
+    }
+
     size_t const rawQueueMemSize =
             [&] { return (argc >= 2) ? atof(argv[1]) : 1024 + 150; }() * 1024 * 1024;
-
-    auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize + 20);
     println("using buffer of size :", rawQueueMemSize);
 
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
@@ -31,6 +33,7 @@ int main(int argc, char **argv) {
     println("total reader threads :", numReaderThreads);
     println();
 
+    auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize + 20);
     LockFreeQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
 
     {/// writing functions to the queue concurrently ::::

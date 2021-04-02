@@ -14,6 +14,10 @@ using RNG = Random<>;
 void test_buffer_queue(BufferQueue &buffer_queue, RNG &rng, size_t functions) noexcept;
 
 int main(int argc, char **argv) {
+    if (argc == 1) {
+        println("usage : ./dq_test_1r_1w <buffer_size> <seed> <buffers>");
+    }
+
     size_t const buffer_size =
             [&] { return (argc >= 2) ? atof(argv[1]) : 10000 / 1024.0 / 1024.0; }() * 1024 * 1024;
 
@@ -38,12 +42,14 @@ test_buffer_queue(BufferQueue &buffer_queue, RNG &rng, size_t functions) noexcep
 
     std::jthread reader{[&, functions]() mutable {
         start_flag.wait();
+        size_t total_bytes{0};
         size_t hash{0};
         {
             Timer timer{"reader"};
             while (functions) {
                 if (buffer_queue.reserve_buffer()) {
-                    buffer_queue.consume_buffer([&hash](auto buffer, auto size) {
+                    buffer_queue.consume_buffer([&hash, &total_bytes](auto buffer, auto size) {
+                        total_bytes += size;
                         std::span const data{reinterpret_cast<char *>(buffer), size};
                         boost::hash_range(hash, data.begin(), data.end());
                     });
@@ -53,34 +59,37 @@ test_buffer_queue(BufferQueue &buffer_queue, RNG &rng, size_t functions) noexcep
                 }
             }
         }
-        println("reader hash :", hash, '\n');
+        println("reader hash :", hash, ", bytes read :", total_bytes, '\n');
     }};
 
     std::jthread writer{[&, functions] {
         start_flag.wait();
         auto func = functions;
-        constexpr uint32_t max_buffer_size{1500};
+        size_t total_bytes{0};
+        constexpr uint32_t max_buffer_size{3000};
         while (func) {
-            if (auto const buffer = buffer_queue.allocate_buffer(max_buffer_size)) {
+            /*if (auto const buffer = buffer_queue.allocate_buffer(max_buffer_size)) {
                 auto const fill_bytes = rng.getRand<uint32_t>(10, max_buffer_size);
+                total_bytes += fill_bytes;
                 std::span const data{reinterpret_cast<char *>(buffer), fill_bytes};
                 rng.fillRand<char>(std::numeric_limits<char>::min(), std::numeric_limits<char>::max(), data.begin(),
                                    data.end());
                 buffer_queue.release_buffer(fill_bytes);
                 --func;
-            } else std::this_thread::yield();
+            } else std::this_thread::yield();*/
 
-
-           /* buffer_queue.allocate_and_release_buffer(max_buffer_size, [&](auto buffer) {
-                auto const fill_bytes = rng.getRand<uint32_t>(10, max_buffer_size);
+            buffer_queue.allocate_and_release_buffer(max_buffer_size, [&, max_buffer_size](auto buffer) mutable {
+                auto const fill_bytes{rng.getRand<uint32_t>(10, max_buffer_size)};
+                total_bytes += fill_bytes;
                 std::span const data{reinterpret_cast<char *>(buffer), fill_bytes};
                 rng.fillRand<char>(std::numeric_limits<char>::min(), std::numeric_limits<char>::max(), data.begin(),
                                    data.end());
                 --func;
                 return fill_bytes;
-            });*/
+            });
 
         }
+        println("bytes written :", total_bytes, '\n');
     }};
 
     start_flag.start();

@@ -60,7 +60,7 @@ namespace util {
     }
 
 
-    template<typename RNG_Type = std::mt19937>
+    template<typename RNG_Type = std::mt19937_64>
     class Random {
     private:
         RNG_Type rng;
@@ -69,7 +69,7 @@ namespace util {
         Random() : rng{std::random_device{}()} {}
 
         template<typename T>
-        Random(T t):rng{t} {
+        Random(T t): rng{t} {
             static_assert(std::is_integral_v<T>);
         }
 

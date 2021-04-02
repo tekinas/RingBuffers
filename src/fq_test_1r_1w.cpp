@@ -17,6 +17,10 @@ void
 test_lockFreeQueue(LockFreeQueue &rawComputeQueue, CallbackGenerator &callbackGenerator, size_t functions) noexcept;
 
 int main(int argc, char **argv) {
+    if (argc == 1) {
+        println("usage : ./fq_test_1r_1w <buffer_size> <seed> <functions>");
+    }
+
     size_t const rawQueueMemSize =
             [&] { return (argc >= 2) ? atof(argv[1]) : 10000 / 1024.0 / 1024.0; }() * 1024 * 1024;
 
