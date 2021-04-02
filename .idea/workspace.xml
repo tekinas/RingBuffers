@@ -3,10 +3,11 @@
   <component name="CMakeRunConfigurationManager" shouldGenerate="true" shouldDeleteObsolete="true">
     <generated>
       <config projectName="FunctionQueue" targetName="fq_test_1r_1w" />
-      <config projectName="FunctionQueue" targetName="fq_test_callNDelete" />
+      <config projectName="FunctionQueue" targetName="fq_test_call_and_pop" />
       <config projectName="FunctionQueue" targetName="fq_test_nr_1w" />
       <config projectName="FunctionQueue" targetName="fq_test_1r_nw" />
       <config projectName="FunctionQueue" targetName="fq_test_call_only" />
+      <config projectName="FunctionQueue" targetName="dq_test_1r_1w" />
       <config projectName="FunctionQueue" targetName="fq_test_mr_mw" />
       <config projectName="FunctionQueue" targetName="fq_test_nr_nw_asio" />
       <config projectName="FunctionQueue" targetName="fq_test_nr_nw" />
@@ -21,28 +22,16 @@
   <component name="ChangeListManager">
     <list default="true" id="208b6fd8-6760-4f44-bd15-2f487cfe8997" name="Default Changelist" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/linux/clang/fq_test_1r_1w" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/clang/fq_test_1r_1w" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/linux/clang/fq_test_1r_nw" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/clang/fq_test_1r_nw" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/linux/clang/fq_test_callNDelete" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/clang/fq_test_callNDelete" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/linux/clang/fq_test_call_only" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/clang/fq_test_call_only" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/linux/clang/fq_test_mr_mw" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/clang/fq_test_mr_mw" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/linux/clang/fq_test_nr_1w" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/clang/fq_test_nr_1w" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/linux/clang/fq_test_nr_nw" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/clang/fq_test_nr_nw" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/linux/clang/fq_test_nr_nw_asio" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/clang/fq_test_nr_nw_asio" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/linux/gcc/fq_test_1r_1w" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/gcc/fq_test_1r_1w" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/linux/gcc/fq_test_1r_nw" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/gcc/fq_test_1r_nw" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/linux/gcc/fq_test_callNDelete" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/gcc/fq_test_callNDelete" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/linux/gcc/fq_test_call_only" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/gcc/fq_test_call_only" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/linux/gcc/fq_test_mr_mw" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/gcc/fq_test_mr_mw" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/linux/gcc/fq_test_nr_1w" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/gcc/fq_test_nr_1w" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/linux/gcc/fq_test_nr_nw" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/gcc/fq_test_nr_nw" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/linux/gcc/fq_test_nr_nw_asio" beforeDir="false" afterPath="$PROJECT_DIR$/bin/linux/gcc/fq_test_nr_nw_asio" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/FunctionQueue_MCSP.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/FunctionQueue_MCSP.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/FunctionQueue_SCSP.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/FunctionQueue_SCSP.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/fq_test_1r_1w.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/fq_test_1r_1w.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/fq_test_1r_nw.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/fq_test_1r_nw.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/fq_test_callNDelete.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/fq_test_call_and_pop.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/fq_test_call_only.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/fq_test_call_only.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/fq_test_mr_mw.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/fq_test_mr_mw.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/fq_test_nr_1w.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/fq_test_nr_1w.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/fq_test_nr_nw.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/fq_test_nr_nw.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/fq_test_nr_nw_asio.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/fq_test_nr_nw_asio.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/util.h" beforeDir="false" afterPath="$PROJECT_DIR$/src/util.h" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -83,7 +72,17 @@
     <property name="restartRequiresConfirmation" value="false" />
     <property name="settings.editor.selected.configurable" value="CPPToolchains" />
   </component>
-  <component name="RunManager" selected="CMake Application.fq_test_nr_nw_asio">
+  <component name="RunManager" selected="CMake Application.fq_test_nr_nw">
+    <configuration default="true" type="CLionExternalRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" PASS_PARENT_ENVS_2="true">
+      <method v="2">
+        <option name="CLION.EXTERNAL.BUILD" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="dq_test_1r_1w" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="FunctionQueue" TARGET_NAME="dq_test_1r_1w" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="FunctionQueue" RUN_TARGET_NAME="dq_test_1r_1w">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
     <configuration name="fq_test_1r_1w" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="FunctionQueue" TARGET_NAME="fq_test_1r_1w" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="FunctionQueue" RUN_TARGET_NAME="fq_test_1r_1w">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
@@ -94,7 +93,7 @@
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
-    <configuration name="fq_test_callNDelete" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="FunctionQueue" TARGET_NAME="fq_test_callNDelete" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="FunctionQueue" RUN_TARGET_NAME="fq_test_callNDelete">
+    <configuration name="fq_test_call_and_pop" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="FunctionQueue" TARGET_NAME="fq_test_call_and_pop" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="FunctionQueue" RUN_TARGET_NAME="fq_test_call_and_pop">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
@@ -124,11 +123,17 @@
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
+    <configuration default="true" type="GradleAppRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" PASS_PARENT_ENVS_2="true">
+      <method v="2">
+        <option name="com.jetbrains.cidr.cpp.gradle.execution.GradleNativeBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
     <list>
+      <item itemvalue="CMake Application.dq_test_1r_1w" />
       <item itemvalue="CMake Application.fq_test_1r_1w" />
       <item itemvalue="CMake Application.fq_test_1r_nw" />
+      <item itemvalue="CMake Application.fq_test_call_and_pop" />
       <item itemvalue="CMake Application.fq_test_call_only" />
-      <item itemvalue="CMake Application.fq_test_callNDelete" />
       <item itemvalue="CMake Application.fq_test_mr_mw" />
       <item itemvalue="CMake Application.fq_test_nr_1w" />
       <item itemvalue="CMake Application.fq_test_nr_nw" />
@@ -217,6 +222,17 @@
       <workItem from="1616580863385" duration="6926000" />
       <workItem from="1616596477408" duration="3516000" />
       <workItem from="1616602038371" duration="692000" />
+      <workItem from="1616838260872" duration="936000" />
+      <workItem from="1616842647753" duration="2226000" />
+      <workItem from="1616863965058" duration="16985000" />
+      <workItem from="1616887592842" duration="305000" />
+      <workItem from="1616912179940" duration="3564000" />
+      <workItem from="1617196849128" duration="378000" />
+      <workItem from="1617280603081" duration="1169000" />
+      <workItem from="1617289508339" duration="18467000" />
+      <workItem from="1617331344985" duration="6190000" />
+      <workItem from="1617360353945" duration="4922000" />
+      <workItem from="1617368910880" duration="1548000" />
     </task>
     <servers />
   </component>
