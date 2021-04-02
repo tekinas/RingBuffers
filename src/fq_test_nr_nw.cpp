@@ -77,6 +77,6 @@ int main(int argc, char **argv) {
     std::vector<std::jthread> threads;
     for (auto t = num_threads; t--;)
         threads.emplace_back([&] {
-            while (rawComputeQueue) rawComputeQueue.callAndPop();
+            while (rawComputeQueue.reserve_function()) rawComputeQueue.call_and_pop();
         });
 }

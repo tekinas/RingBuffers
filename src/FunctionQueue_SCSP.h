@@ -33,7 +33,6 @@ private:
     class Type {
     };
 
-    template<typename T>
     struct Storage;
 
     struct FunctionContext {
@@ -43,9 +42,7 @@ private:
         uint16_t const obj_offset;
         uint16_t const stride;
 
-        template<typename U>
-        friend
-        class Storage;
+        friend class Storage;
 
         template<typename Callable>
         FunctionContext(Type<Callable>, uint16_t obj_offset, uint16_t stride) noexcept:
@@ -68,33 +65,29 @@ private:
         inline auto getNextAddr() noexcept { return reinterpret_cast<std::byte *>(this) + stride; }
     };
 
-    template<typename Callable>
     struct Storage {
         FunctionContext *const fp_ptr{};
-        Callable *const obj_ptr{};
+        void *const obj_ptr{};
 
         Storage() noexcept = default;
 
         Storage(void *fp_ptr, void *obj_ptr) noexcept: fp_ptr{static_cast<FunctionContext *>(fp_ptr)},
-                                                       obj_ptr{static_cast<Callable *>(obj_ptr)} {}
+                                                       obj_ptr{obj_ptr} {}
 
         inline explicit operator bool() const noexcept {
             return fp_ptr && obj_ptr;
         }
 
-        template<typename... CArgs>
+        template<typename Callable, typename... CArgs>
         inline void construct_callable(CArgs &&... args) const noexcept {
-            new(fp_ptr) FunctionContext{Type<Callable>{}, getObjOffset(), getStride()};
+            new(fp_ptr) FunctionContext{Type<Callable>{}, getObjOffset(),
+                                        static_cast<uint16_t>(getObjOffset() + sizeof(Callable))};
             new(obj_ptr) Callable{std::forward<CArgs>(args)...};
         }
 
     private:
         [[nodiscard]] inline uint16_t getObjOffset() const noexcept {
             return reinterpret_cast<std::byte *>(obj_ptr) - reinterpret_cast<std::byte *>(fp_ptr);
-        }
-
-        [[nodiscard]] inline uint16_t getStride() const noexcept {
-            return getObjOffset() + sizeof(Callable);
         }
     };
 
@@ -135,7 +128,7 @@ public:
         }
     }
 
-    inline /*__attribute__((always_inline))*/ explicit operator bool() noexcept {
+    inline bool reserve_function() noexcept {
         if constexpr (isReadProtected) {
             if (m_ReadFlag.test_and_set(std::memory_order_relaxed)) return false;
             if (!m_Remaining.load(std::memory_order_acquire)) {
@@ -145,7 +138,7 @@ public:
         } else return m_Remaining.load(std::memory_order_acquire);
     }
 
-    inline /*__attribute__((always_inline))*/ R callAndPop(Args...args) noexcept {
+    inline R call_and_pop(Args...args) noexcept {
         auto const output_offset = m_OutPutOffset.load(std::memory_order_relaxed);
         bool const found_sentinel = output_offset == m_SentinelRead.load(std::memory_order_relaxed);
         if (found_sentinel) m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
@@ -174,14 +167,14 @@ public:
     }
 
     template<typename T>
-    inline /*__attribute__((always_inline))*/ bool push_back(T &&function) noexcept {
+    inline bool push_back(T &&function) noexcept {
         if constexpr (isWriteProtected) {
             if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return false;
         }
 
         using Callable = std::decay_t<T>;
 
-        auto const storage = getMemory<Callable>();
+        auto const storage = getMemory(alignof(Callable), sizeof(Callable));
         if (!storage) {
             if constexpr (isWriteProtected) {
                 m_WriteFlag.clear(std::memory_order_release);
@@ -189,7 +182,7 @@ public:
             return false;
         }
 
-        storage.construct_callable(std::forward<T>(function));
+        storage.template construct_callable<Callable>(std::forward<T>(function));
 
         m_Remaining.fetch_add(1, std::memory_order_release);
 
@@ -201,12 +194,12 @@ public:
     }
 
     template<typename Callable, typename ...CArgs>
-    inline bool emplace_back(Args &&...args) noexcept {
+    inline bool emplace_back(CArgs &&...args) noexcept {
         if constexpr (isWriteProtected) {
             if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return false;
         }
 
-        auto const storage = getMemory<Callable>();
+        auto const storage = getMemory(alignof(Callable), sizeof(Callable));
         if (!storage) {
             if constexpr (isWriteProtected) {
                 m_WriteFlag.clear(std::memory_order_release);
@@ -214,7 +207,7 @@ public:
             return false;
         }
 
-        storage.construct_callable(std::forward<CArgs>(args)...);
+        storage.template construct_callable<Callable>(std::forward<CArgs>(args)...);
 
         m_Remaining.fetch_add(1, std::memory_order_release);
 
@@ -232,20 +225,6 @@ private:
     template<typename T>
     static constexpr inline T *align(void *ptr) noexcept {
         return reinterpret_cast<T *>((reinterpret_cast<uintptr_t>(ptr) - 1u + alignof(T)) & -alignof(T));
-    }
-
-    template<typename T>
-    static inline void *
-    align(void *&ptr, size_t &space) noexcept {
-        const auto intptr = reinterpret_cast<uintptr_t>(ptr);
-        const auto aligned = (intptr - 1u + alignof(T)) & -alignof(T);
-        const auto diff = aligned - intptr;
-        if ((sizeof(T) + diff) > space)
-            return nullptr;
-        else {
-            space -= diff;
-            return ptr = reinterpret_cast<void *>(aligned);
-        }
     }
 
     template<typename Callable>
@@ -266,18 +245,17 @@ private:
         std::destroy_at(static_cast<Callable *>(data));
     }
 
-    template<typename T>
-    inline Storage<T> getMemory() noexcept {
-        auto getAlignedStorage = [](void *buffer, size_t size) noexcept -> Storage<T> {
-            auto const fp_storage = align<FunctionContext>(buffer, size);
+    inline Storage getMemory(size_t obj_align, size_t obj_size) noexcept {
+        auto getAlignedStorage = [obj_align, obj_size](void *buffer, size_t size) noexcept -> Storage {
+            auto const fp_storage = std::align(alignof(FunctionContext), sizeof(FunctionContext), buffer, size);
             buffer = static_cast<std::byte *>(buffer) + sizeof(FunctionContext);
             size -= sizeof(FunctionContext);
-            auto const callable_storage = align<T>(buffer, size);
+            auto const callable_storage = std::align(obj_align, obj_size, buffer, size);
             return {fp_storage, callable_storage};
         };
 
         auto incr_input_offset = [&](auto &storage) noexcept {
-            m_InputOffset = reinterpret_cast<std::byte *>(storage.obj_ptr) - m_Memory + sizeof(T);
+            m_InputOffset = reinterpret_cast<std::byte *>(storage.obj_ptr) - m_Memory + obj_size;
         };
 
         auto const remaining = m_Remaining.load(std::memory_order_acquire);

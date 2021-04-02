@@ -20,7 +20,6 @@ int main(int argc, char **argv) {
     size_t const rawQueueMemSize =
             [&] { return (argc >= 2) ? atof(argv[1]) : 10000 / 1024.0 / 1024.0; }() * 1024 * 1024;
 
-    auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize);
     println("using buffer of size :", rawQueueMemSize);
 
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
@@ -29,6 +28,7 @@ int main(int argc, char **argv) {
     size_t const functions = [&] { return (argc >= 4) ? atol(argv[3]) : 12639182; }();
     println("total functions :", functions);
 
+    auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize);
     LockFreeQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
 
     CallbackGenerator callbackGenerator{seed};
@@ -47,8 +47,8 @@ test_lockFreeQueue(LockFreeQueue &rawComputeQueue, CallbackGenerator &callbackGe
             Timer timer{"reader"};
             while (res != std::numeric_limits<size_t>::max()) {
                 num = res;
-                if (rawComputeQueue) {
-                    res = rawComputeQueue.callAndPop(res);
+                if (rawComputeQueue.reserve_function()) {
+                    res = rawComputeQueue.call_and_pop(res);
 //                    println(res);
                 } else {
                     std::this_thread::yield();
