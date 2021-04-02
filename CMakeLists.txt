@@ -38,13 +38,15 @@ endif ()
 
 
 add_executable(fq_test_call_only src/fq_test_call_only.cpp)
-add_executable(fq_test_callNDelete src/fq_test_callNDelete.cpp)
+add_executable(fq_test_call_and_pop src/fq_test_call_and_pop.cpp)
 add_executable(fq_test_1r_1w src/fq_test_1r_1w.cpp)
 add_executable(fq_test_nr_nw_asio src/fq_test_nr_nw_asio.cpp)
 add_executable(fq_test_nr_nw src/fq_test_nr_nw.cpp)
 add_executable(fq_test_nr_1w src/fq_test_nr_1w.cpp)
 add_executable(fq_test_1r_nw src/fq_test_1r_nw.cpp)
 add_executable(fq_test_mr_mw src/fq_test_mr_mw.cpp)
+
+add_executable(dq_test_1r_1w src/dq_test_1r_1w.cpp)
 
 if (UNIX)
     target_link_libraries(fq_test_nr_1w PRIVATE atomic)

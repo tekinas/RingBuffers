@@ -84,8 +84,8 @@ int main(int argc, char **argv) {
     size_t num = 0;
     {
         Timer timer{"function queue"};
-        while (rawComputeQueue) {
-            num = rawComputeQueue.callAndPop(num);
+        while (rawComputeQueue.reserve_function()) {
+            num = rawComputeQueue.call_and_pop(num);
         }
     }
     println("result :", num, '\n');
