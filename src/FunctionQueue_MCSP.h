@@ -77,11 +77,11 @@ private:
 
         inline auto getNextAddr() noexcept { return reinterpret_cast<std::byte *>(this) + stride; }
 
-        inline void release() noexcept {
+        inline void free() noexcept {
             fp_offset.store(0, std::memory_order_release);
         }
 
-        [[nodiscard]] inline bool isReleased() const noexcept {
+        [[nodiscard]] inline bool isFree() const noexcept {
             return fp_offset.load(std::memory_order_acquire) == 0;
         }
 
@@ -144,7 +144,7 @@ public:
             if (auto const sentinel = m_SentinelRead.load(std::memory_order_relaxed); sentinel != NO_SENTINEL) {
                 while (output_pos != sentinel) {
                     auto const functionCxt = align<FunctionContext>(m_Memory + output_pos);
-                    if (!functionCxt->isReleased())
+                    if (!functionCxt->isFree())
                         destroyAndForward(functionCxt);
                     --remaining;
                 }
@@ -153,7 +153,7 @@ public:
 
             while (remaining) {
                 auto const functionCxt = align<FunctionContext>(m_Memory + output_pos);
-                if (!functionCxt->isReleased())
+                if (!functionCxt->isFree())
                     destroyAndForward(functionCxt);
                 --remaining;
             }
@@ -187,11 +187,11 @@ public:
 
         if constexpr (std::is_same_v<void, R>) {
             invokeAndDestroyFP(objPtr, args...);
-            functionCxt->release();
+            functionCxt->free();
             if (found_sentinel) m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
         } else {
             auto &&result{invokeAndDestroyFP(objPtr, args...)};
-            functionCxt->release();
+            functionCxt->free();
             if (found_sentinel) m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
             return std::forward<decltype(result)>(result);
         }
@@ -303,7 +303,7 @@ private:
                         m_SentinelFollow = NO_SENTINEL;
                     }
                 } else if (auto const functionCxt = align<FunctionContext>(m_Memory + followOffset);
-                        functionCxt->isReleased()) {
+                        functionCxt->isFree()) {
                     followOffset = functionCxt->getNextAddr() - m_Memory;
                     --remaining;
                 } else {

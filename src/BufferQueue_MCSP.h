@@ -12,7 +12,6 @@
 #include <memory>
 #include <functional>
 
-
 template<bool isWriteProtected, bool isIndexed, size_t buffer_align = 8>
 class BufferQueue_MCSP {
 
@@ -42,32 +41,31 @@ private:
     struct DataContext {
     private:
         std::atomic<uint32_t> buffer_size;
-        uint32_t stride;
+        uint32_t const stride;
 
         friend class Storage;
 
         DataContext(uint32_t buffer_size, uint32_t stride) noexcept:
                 buffer_size{buffer_size}, stride{stride} {}
 
+        explicit DataContext(uint32_t buffer_size) noexcept: buffer_size{buffer_size},
+                                                             stride{static_cast<uint32_t>(
+                                                                            align<std::byte, buffer_align>(this + 1) -
+                                                                            reinterpret_cast<std::byte *>(this) +
+                                                                            buffer_size)} {}
+
     public:
-        inline auto getReadData() noexcept {
-            return std::tuple{getBuffer(), buffer_size.load(std::memory_order_relaxed), getNextAddr()};
-        }
-
-        inline auto getBuffer() noexcept { return align<std::byte, buffer_align>(this + 1); }
-
-        void setBufferSize(uint32_t size) noexcept {
-            buffer_size.store(size, std::memory_order_relaxed);
-            stride = align<std::byte, buffer_align>(this + 1) - reinterpret_cast<std::byte *>(this) + size;
+        inline std::pair<std::byte *, uint32_t> getBuffer() noexcept {
+            return {align<std::byte, buffer_align>(this + 1), buffer_size.load(std::memory_order_relaxed)};
         }
 
         inline auto getNextAddr() noexcept { return reinterpret_cast<std::byte *>(this) + stride; }
 
-        inline void release() noexcept {
+        inline void free() noexcept {
             buffer_size.store(0, std::memory_order_release);
         }
 
-        [[nodiscard]] inline bool isReleased() const noexcept {
+        [[nodiscard]] inline bool isFree() const noexcept {
             return buffer_size.load(std::memory_order_acquire) == 0;
         }
     };
@@ -75,20 +73,27 @@ private:
     struct Storage {
         DataContext *const dc_ptr{};
         std::byte *const buffer{};
+        uint32_t const avl_size{};
 
         Storage() noexcept = default;
 
-        Storage(void *dc_ptr, void *buffer) noexcept: dc_ptr{static_cast<DataContext *>(dc_ptr)},
-                                                      buffer{static_cast<std::byte *>(buffer)} {}
+        Storage(void *dc_ptr, void *buffer, uint32_t avl_size) noexcept: dc_ptr{static_cast<DataContext *>(dc_ptr)},
+                                                                         buffer{static_cast<std::byte *>(buffer)},
+                                                                         avl_size{avl_size} {}
 
         inline explicit operator bool() const noexcept {
             return dc_ptr && buffer;
         }
 
-        [[nodiscard]] inline auto set(uint32_t buffer_size) const noexcept {
+        [[nodiscard]] inline auto createContext(uint32_t buffer_size) const noexcept {
             new(dc_ptr) DataContext{buffer_size, static_cast<uint32_t>(buffer - reinterpret_cast<std::byte *>(dc_ptr) +
                                                                        buffer_size)};
             return dc_ptr;
+        }
+
+        inline static auto createContext(void *addr, uint32_t buffer_size) noexcept {
+            new(addr) DataContext{buffer_size};
+            return static_cast<DataContext *>(addr);
         }
     };
 
@@ -129,56 +134,55 @@ public:
             else return nextOffset;
         }(), std::memory_order_relaxed, std::memory_order_relaxed));
 
-        auto const[buffer_data, buffer_size, nextAddr] = data_cxt->getReadData();
+        auto const[buffer_data, buffer_size] = data_cxt->getBuffer();
 
         using ReturnType = decltype(functor(std::declval<std::byte *>(), uint32_t{}));
         if constexpr (std::is_same_v<void, ReturnType>) {
             std::forward<F>(functor)(buffer_data, buffer_size);
-            data_cxt->release();
+            data_cxt->free();
             if (found_sentinel) m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
         } else {
             auto &&result{std::forward<F>(functor)(buffer_data, buffer_size)};
-            data_cxt->release();
+            data_cxt->free();
             if (found_sentinel) m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
             return std::forward<decltype(result)>(result);
         }
     }
 
-    auto get_unreleased_buffer() const noexcept {
-        auto const[buffer, size, nextAddr] = reinterpret_cast<DataContext *>(m_Memory +
-                                                                             m_CurrentBufferCxtOffset)->getReadData();
-        return std::pair{buffer, size};
+    [[nodiscard]] inline std::pair<std::byte *, uint32_t> get_unreleased_buffer() const noexcept {
+        return {align<std::byte, buffer_align>(
+                reinterpret_cast<DataContext *>(m_Memory + m_CurrentBufferCxtOffset) + 1),
+                m_CurrentBufferSize};
     }
 
-    void release_buffer(uint32_t bytes_used) noexcept {
-        auto const dc_ptr = reinterpret_cast<DataContext *>(m_Memory + m_CurrentBufferCxtOffset);
-        dc_ptr->setBufferSize(bytes_used);
-        m_InputOffset = dc_ptr->getNextAddr() - m_Memory;
-        m_Remaining.fetch_add(1, std::memory_order_release);
-        ++m_RemainingClean;
-    }
-
-    inline /*__attribute__((always_inline))*/ std::byte *allocate_buffer(uint32_t buffer_size) noexcept {
+    inline std::pair<std::byte *, uint32_t> allocate_buffer(uint32_t buffer_size) noexcept {
         if constexpr (isWriteProtected) {
-            if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return nullptr;
+            if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return {nullptr, 0};
         }
 
-        Storage const storage = getMemory(buffer_size);
+        auto const storage = getMemory(buffer_size);
         if (!storage) {
             if constexpr (isWriteProtected) {
                 m_WriteFlag.clear(std::memory_order_release);
             }
-            return nullptr;
+            return {nullptr, 0};
         }
 
-        auto const dc_ptr = storage.set(buffer_size);
-        m_CurrentBufferCxtOffset = reinterpret_cast<std::byte *>(dc_ptr) - m_Memory;
+        m_CurrentBufferCxtOffset = reinterpret_cast<std::byte *>(storage.dc_ptr) - m_Memory;
+        m_CurrentBufferSize = storage.avl_size;
+
+        return {storage.buffer, storage.avl_size};
+    }
+
+    void release_buffer(uint32_t bytes_used) noexcept {
+        auto const dc_ptr = Storage::createContext(m_Memory + m_CurrentBufferCxtOffset, bytes_used);
+        m_InputOffset = dc_ptr->getNextAddr() - m_Memory;
+        m_Remaining.fetch_add(1, std::memory_order_release);
+        ++m_RemainingClean;
 
         if constexpr (isWriteProtected) {
             m_WriteFlag.clear(std::memory_order_release);
         }
-
-        return dc_ptr->getBuffer();
     }
 
     template<typename F>
@@ -187,7 +191,7 @@ public:
             if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return;
         }
 
-        Storage const storage = getMemory(buffer_size);
+        auto const storage = getMemory(buffer_size);
         if (!storage) {
             if constexpr (isWriteProtected) {
                 m_WriteFlag.clear(std::memory_order_release);
@@ -195,13 +199,12 @@ public:
             return;
         }
 
-        auto const dc_ptr = storage.set(buffer_size);
-        dc_ptr->setBufferSize(std::invoke(std::forward<F>(functor), dc_ptr->getBuffer()));
-
+        auto const dc_ptr = storage.createContext(
+                std::invoke(std::forward<F>(functor), storage.buffer, storage.avl_size));
         m_InputOffset = dc_ptr->getNextAddr() - m_Memory;
         m_Remaining.fetch_add(1, std::memory_order_release);
-
         ++m_RemainingClean;
+
         if constexpr (isWriteProtected) {
             m_WriteFlag.clear(std::memory_order_release);
         }
@@ -222,7 +225,7 @@ private:
             buffer = static_cast<std::byte *>(buffer) + sizeof(DataContext);
             size -= sizeof(DataContext);
             auto const callable_storage = std::align(buffer_align, buffer_size, buffer, size);
-            return {fp_storage, callable_storage};
+            return {fp_storage, callable_storage, static_cast<uint32_t>(size)};
         };
 
         auto const remaining = m_RemainingClean;
@@ -267,7 +270,7 @@ private:
                         m_SentinelFollow = NO_SENTINEL;
                     }
                 } else if (auto const functionCxt = align<DataContext>(m_Memory + followOffset);
-                        functionCxt->isReleased()) {
+                        functionCxt->isFree()) {
                     followOffset = functionCxt->getNextAddr() - m_Memory;
                     --remaining;
                 } else {
@@ -284,6 +287,7 @@ private:
 
     uint32_t m_InputOffset{0};
     uint32_t m_CurrentBufferCxtOffset{0};
+    uint32_t m_CurrentBufferSize{0};
     uint32_t m_RemainingClean{0};
     uint32_t m_OutputFollowOffset{0};
     uint32_t m_SentinelFollow{NO_SENTINEL};

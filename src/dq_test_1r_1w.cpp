@@ -6,8 +6,9 @@
 #include <span>
 
 using namespace util;
-//using BufferQueue = BufferQueue_SCSP<false, false, alignof(char)>;
-using BufferQueue = BufferQueue_MCSP<false, false, alignof(char)>;
+
+using BufferQueue = BufferQueue_SCSP<false, false, alignof(char)>;
+//using BufferQueue = BufferQueue_MCSP<false, false, alignof(char)>;
 
 using RNG = Random<>;
 
@@ -66,27 +67,32 @@ test_buffer_queue(BufferQueue &buffer_queue, RNG &rng, size_t functions) noexcep
         start_flag.wait();
         auto func = functions;
         size_t total_bytes{0};
-        constexpr uint32_t max_buffer_size{3000};
+        constexpr uint32_t min_buffer_size{3000};
         while (func) {
-            /*if (auto const buffer = buffer_queue.allocate_buffer(max_buffer_size)) {
-                auto const fill_bytes = rng.getRand<uint32_t>(10, max_buffer_size);
+            if (auto const[buffer, avl_size] = buffer_queue.allocate_buffer(min_buffer_size); buffer) {
+                auto const fill_bytes = rng.getRand<uint32_t>(10, avl_size);
                 total_bytes += fill_bytes;
                 std::span const data{reinterpret_cast<char *>(buffer), fill_bytes};
                 rng.fillRand<char>(std::numeric_limits<char>::min(), std::numeric_limits<char>::max(), data.begin(),
                                    data.end());
                 buffer_queue.release_buffer(fill_bytes);
                 --func;
-            } else std::this_thread::yield();*/
+            }
 
-            buffer_queue.allocate_and_release_buffer(max_buffer_size, [&, max_buffer_size](auto buffer) mutable {
-                auto const fill_bytes{rng.getRand<uint32_t>(10, max_buffer_size)};
-                total_bytes += fill_bytes;
-                std::span const data{reinterpret_cast<char *>(buffer), fill_bytes};
-                rng.fillRand<char>(std::numeric_limits<char>::min(), std::numeric_limits<char>::max(), data.begin(),
-                                   data.end());
-                --func;
-                return fill_bytes;
-            });
+            /* buffer_queue.allocate_and_release_buffer(min_buffer_size,
+                                                      [&](auto buffer, auto avl_size) mutable {
+                                                          auto const fill_bytes{
+                                                                  rng.getRand<uint32_t>(10, avl_size)};
+                                                          total_bytes += fill_bytes;
+                                                          std::span const data{reinterpret_cast<char *>(buffer),
+                                                                               fill_bytes};
+                                                          rng.fillRand<char>(std::numeric_limits<char>::min(),
+                                                                             std::numeric_limits<char>::max(),
+                                                                             data.begin(),
+                                                                             data.end());
+                                                          --func;
+                                                          return fill_bytes;
+                                                      });*/
 
         }
         println("bytes written :", total_bytes, '\n');
