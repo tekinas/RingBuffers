@@ -104,6 +104,35 @@ private:
     };
 
 public:
+
+    class Buffer {
+    public:
+
+        [[nodiscard]] inline std::pair<std::byte *, uint32_t> get() const noexcept {
+            return dataContext->getBuffer();
+        }
+
+        Buffer(Buffer &&other) noexcept: dataContext{std::exchange(other.dataContext, nullptr)} {}
+
+        Buffer &operator=(Buffer &&other) noexcept {
+            this->~Buffer();
+            dataContext = std::exchange(other.dataContext, nullptr);
+            return *this;
+        }
+
+        ~Buffer() noexcept {
+            if (dataContext) dataContext->free();
+        }
+
+    private:
+        friend class BufferQueue_MCSP;
+
+        explicit Buffer(DataContext *dataContext) noexcept: dataContext{dataContext} {}
+
+        DataContext *dataContext;
+    };
+
+public:
     BufferQueue_MCSP(void *memory, std::size_t size) noexcept: m_Memory{static_cast<std::byte *const>(memory)},
                                                                m_MemorySize{static_cast<uint32_t>(size)} {
         if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
@@ -149,10 +178,23 @@ public:
         }
     }
 
-    [[nodiscard]] inline std::pair<std::byte *, uint32_t> get_unreleased_buffer() const noexcept {
-        return {align<std::byte, buffer_align>(
-                reinterpret_cast<DataContext *>(m_Memory + m_CurrentBufferCxtOffset) + 1),
-                m_CurrentBufferSize};
+    inline auto consume_buffer() noexcept {
+        DataContext *data_cxt;
+        auto out_pos = m_OutPutOffset.load(std::memory_order::relaxed);
+        bool found_sentinel;
+        while (!m_OutPutOffset.compare_exchange_weak(out_pos, [&, out_pos] {
+            if ((found_sentinel = (uint32_t{out_pos} == m_SentinelRead.load(std::memory_order_relaxed)))) {
+                data_cxt = align<DataContext>(m_Memory);
+            } else data_cxt = align<DataContext>(m_Memory + uint32_t{out_pos});
+
+            auto const nextOffset = data_cxt->getNextAddr() - m_Memory;
+            if constexpr (isIndexed) { return out_pos.getNext(nextOffset); }
+            else return nextOffset;
+        }(), std::memory_order_relaxed, std::memory_order_relaxed));
+
+        if (found_sentinel) m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
+
+        return Buffer{data_cxt};
     }
 
     inline std::pair<std::byte *, uint32_t> allocate_buffer(uint32_t buffer_size) noexcept {
@@ -169,7 +211,6 @@ public:
         }
 
         m_CurrentBufferCxtOffset = reinterpret_cast<std::byte *>(storage.dc_ptr) - m_Memory;
-        m_CurrentBufferSize = storage.avl_size;
 
         return {storage.buffer, storage.avl_size};
     }
@@ -208,6 +249,29 @@ public:
         if constexpr (isWriteProtected) {
             m_WriteFlag.clear(std::memory_order_release);
         }
+    }
+
+    inline uint32_t available_space() noexcept {
+        auto getUsableSpace = [](void *buffer, size_t size) noexcept -> uint32_t {
+            auto const fp_storage = std::align(alignof(DataContext), sizeof(DataContext), buffer, size);
+            buffer = static_cast<std::byte *>(buffer) + sizeof(DataContext);
+            size -= sizeof(DataContext);
+            auto const callable_storage = std::align(buffer_align, 0, buffer, size);
+            return fp_storage && callable_storage ? static_cast<uint32_t>(size) : 0;
+        };
+
+        cleanMemory();
+
+        auto const remaining = m_RemainingClean;
+        auto const input_offset = m_InputOffset;
+        auto const output_offset = m_OutputFollowOffset;
+
+        if ((input_offset > output_offset) || (input_offset == output_offset && !remaining)) {
+            return std::max(getUsableSpace(m_Memory + input_offset, m_MemorySize - input_offset),
+                            getUsableSpace(m_Memory, output_offset));
+        } else if (input_offset < output_offset) {
+            return getUsableSpace(m_Memory + input_offset, output_offset - input_offset);
+        } else return 0;
     }
 
     [[nodiscard]] inline uint32_t size() const noexcept { return m_Remaining.load(std::memory_order_relaxed); }
@@ -287,7 +351,6 @@ private:
 
     uint32_t m_InputOffset{0};
     uint32_t m_CurrentBufferCxtOffset{0};
-    uint32_t m_CurrentBufferSize{0};
     uint32_t m_RemainingClean{0};
     uint32_t m_OutputFollowOffset{0};
     uint32_t m_SentinelFollow{NO_SENTINEL};
