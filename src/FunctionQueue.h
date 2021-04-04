@@ -88,10 +88,12 @@ private:
     };
 
 public:
-    FunctionQueue(void *memory, std::size_t size) noexcept: m_Memory{static_cast<std::byte *>(memory)},
-                                                            m_MemorySize{static_cast<uint32_t>(size)} {
-        memset(m_Memory, 0, m_MemorySize);
+    FunctionQueue(void *memory, std::size_t size) noexcept: m_Buffer{static_cast<std::byte *>(memory)},
+                                                            m_BufferSize{static_cast<uint32_t>(size)} {
+        memset(m_Buffer, 0, m_BufferSize);
     }
+
+    auto buffer_size() const noexcept { return m_BufferSize; }
 
     ~FunctionQueue() noexcept {
         if constexpr (destroyNonInvoked) {
@@ -104,19 +106,19 @@ public:
             auto destroyAndForward = [&](auto functionCxt) noexcept {
                 auto const[dfp, objPtr, nextAddr] = functionCxt->getDestroyData();
                 dfp(objPtr);
-                output_pos = nextAddr - m_Memory;
+                output_pos = nextAddr - m_Buffer;
             };
 
             if (auto const sentinel = m_SentinelRead; sentinel != NO_SENTINEL) {
                 while (output_pos != sentinel) {
-                    destroyAndForward(align<FunctionContext>(m_Memory + output_pos));
+                    destroyAndForward(align<FunctionContext>(m_Buffer + output_pos));
                     --remaining;
                 }
                 output_pos = 0;
             }
 
             while (remaining) {
-                destroyAndForward(align<FunctionContext>(m_Memory + output_pos));
+                destroyAndForward(align<FunctionContext>(m_Buffer + output_pos));
                 --remaining;
             }
         }
@@ -131,11 +133,11 @@ public:
         bool const found_sentinel = output_offset == m_SentinelRead;
         if (found_sentinel) m_SentinelRead = NO_SENTINEL;
 
-        auto const functionCxtPtr = align<FunctionContext>(m_Memory + (found_sentinel ? 0 : output_offset));
+        auto const functionCxtPtr = align<FunctionContext>(m_Buffer + (found_sentinel ? 0 : output_offset));
 
         auto const[invokeAndDestroyFP, objPtr, nextAddr] = functionCxtPtr->getReadData();
 
-        auto decr_rem_incr_output_offset = [&, nextOffset{nextAddr - m_Memory}] {
+        auto decr_rem_incr_output_offset = [&, nextOffset{nextAddr - m_Buffer}] {
             --m_Remaining;
             m_OutPutOffset = nextOffset;
         };
@@ -217,7 +219,7 @@ private:
         };
 
         auto incr_input_offset = [&](auto &storage) noexcept {
-            m_InputOffset = reinterpret_cast<std::byte *>(storage.obj_ptr) - m_Memory + obj_size;
+            m_InputOffset = reinterpret_cast<std::byte *>(storage.obj_ptr) - m_Buffer + obj_size;
         };
 
         auto const remaining = m_Remaining;
@@ -226,9 +228,9 @@ private:
 
         auto const search_ahead = (input_offset > output_offset) || (input_offset == output_offset && !remaining);
 
-        if (size_t const buffer_size = m_MemorySize - input_offset;
+        if (size_t const buffer_size = m_BufferSize - input_offset;
                 search_ahead && buffer_size) {
-            if (auto storage = getAlignedStorage(m_Memory + input_offset, buffer_size)) {
+            if (auto storage = getAlignedStorage(m_Buffer + input_offset, buffer_size)) {
                 incr_input_offset(storage);
                 return storage;
             }
@@ -237,7 +239,7 @@ private:
         {
             auto const mem = search_ahead ? 0 : input_offset;
             if (size_t const buffer_size = output_offset - mem) {
-                if (auto storage = getAlignedStorage(m_Memory + mem, buffer_size)) {
+                if (auto storage = getAlignedStorage(m_Buffer + mem, buffer_size)) {
                     if (search_ahead) {
                         m_SentinelRead = input_offset;
                     }
@@ -258,8 +260,8 @@ private:
     uint32_t m_OutPutOffset{0};
     uint32_t m_SentinelRead{NO_SENTINEL};
 
-    uint32_t const m_MemorySize;
-    std::byte *const m_Memory;
+    uint32_t const m_BufferSize;
+    std::byte *const m_Buffer;
 
     static R baseFP(Args...) noexcept {
         if constexpr (!std::is_same_v<R, void>) {

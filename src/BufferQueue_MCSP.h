@@ -133,11 +133,13 @@ public:
     };
 
 public:
-    BufferQueue_MCSP(void *memory, std::size_t size) noexcept: m_Memory{static_cast<std::byte *const>(memory)},
-                                                               m_MemorySize{static_cast<uint32_t>(size)} {
+    BufferQueue_MCSP(void *memory, std::size_t size) noexcept: m_Buffer{static_cast<std::byte *const>(memory)},
+                                                               m_BufferSize{static_cast<uint32_t>(size)} {
         if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
-        memset(m_Memory, 0, m_MemorySize);
+        memset(m_Buffer, 0, m_BufferSize);
     }
+
+    auto buffer_size() const noexcept { return m_BufferSize; }
 
     inline bool reserve_buffer() noexcept {
         uint32_t rem = m_Remaining.load(std::memory_order_relaxed);
@@ -155,10 +157,10 @@ public:
         bool found_sentinel;
         while (!m_OutPutOffset.compare_exchange_weak(out_pos, [&, out_pos] {
             if ((found_sentinel = (uint32_t{out_pos} == m_SentinelRead.load(std::memory_order_relaxed)))) {
-                data_cxt = align<DataContext>(m_Memory);
-            } else data_cxt = align<DataContext>(m_Memory + uint32_t{out_pos});
+                data_cxt = align<DataContext>(m_Buffer);
+            } else data_cxt = align<DataContext>(m_Buffer + uint32_t{out_pos});
 
-            auto const nextOffset = data_cxt->getNextAddr() - m_Memory;
+            auto const nextOffset = data_cxt->getNextAddr() - m_Buffer;
             if constexpr (isIndexed) { return out_pos.getNext(nextOffset); }
             else return nextOffset;
         }(), std::memory_order_relaxed, std::memory_order_relaxed));
@@ -184,10 +186,10 @@ public:
         bool found_sentinel;
         while (!m_OutPutOffset.compare_exchange_weak(out_pos, [&, out_pos] {
             if ((found_sentinel = (uint32_t{out_pos} == m_SentinelRead.load(std::memory_order_relaxed)))) {
-                data_cxt = align<DataContext>(m_Memory);
-            } else data_cxt = align<DataContext>(m_Memory + uint32_t{out_pos});
+                data_cxt = align<DataContext>(m_Buffer);
+            } else data_cxt = align<DataContext>(m_Buffer + uint32_t{out_pos});
 
-            auto const nextOffset = data_cxt->getNextAddr() - m_Memory;
+            auto const nextOffset = data_cxt->getNextAddr() - m_Buffer;
             if constexpr (isIndexed) { return out_pos.getNext(nextOffset); }
             else return nextOffset;
         }(), std::memory_order_relaxed, std::memory_order_relaxed));
@@ -210,14 +212,14 @@ public:
             return {nullptr, 0};
         }
 
-        m_CurrentBufferCxtOffset = reinterpret_cast<std::byte *>(storage.dc_ptr) - m_Memory;
+        m_CurrentBufferCxtOffset = reinterpret_cast<std::byte *>(storage.dc_ptr) - m_Buffer;
 
         return {storage.buffer, storage.avl_size};
     }
 
     void release_buffer(uint32_t bytes_used) noexcept {
-        auto const dc_ptr = Storage::createContext(m_Memory + m_CurrentBufferCxtOffset, bytes_used);
-        m_InputOffset = dc_ptr->getNextAddr() - m_Memory;
+        auto const dc_ptr = Storage::createContext(m_Buffer + m_CurrentBufferCxtOffset, bytes_used);
+        m_InputOffset = dc_ptr->getNextAddr() - m_Buffer;
         m_Remaining.fetch_add(1, std::memory_order_release);
         ++m_RemainingClean;
 
@@ -242,7 +244,7 @@ public:
 
         auto const dc_ptr = storage.createContext(
                 std::invoke(std::forward<F>(functor), storage.buffer, storage.avl_size));
-        m_InputOffset = dc_ptr->getNextAddr() - m_Memory;
+        m_InputOffset = dc_ptr->getNextAddr() - m_Buffer;
         m_Remaining.fetch_add(1, std::memory_order_release);
         ++m_RemainingClean;
 
@@ -267,10 +269,10 @@ public:
         auto const output_offset = m_OutputFollowOffset;
 
         if ((input_offset > output_offset) || (input_offset == output_offset && !remaining)) {
-            return std::max(getUsableSpace(m_Memory + input_offset, m_MemorySize - input_offset),
-                            getUsableSpace(m_Memory, output_offset));
+            return std::max(getUsableSpace(m_Buffer + input_offset, m_BufferSize - input_offset),
+                            getUsableSpace(m_Buffer, output_offset));
         } else if (input_offset < output_offset) {
-            return getUsableSpace(m_Memory + input_offset, output_offset - input_offset);
+            return getUsableSpace(m_Buffer + input_offset, output_offset - input_offset);
         } else return 0;
     }
 
@@ -298,9 +300,9 @@ private:
 
         auto const search_ahead = (input_offset > output_offset) || (input_offset == output_offset && !remaining);
 
-        if (size_t const buffer_size = m_MemorySize - input_offset;
+        if (size_t const buffer_size = m_BufferSize - input_offset;
                 search_ahead && buffer_size) {
-            if (auto storage = getAlignedStorage(m_Memory + input_offset, buffer_size)) {
+            if (auto storage = getAlignedStorage(m_Buffer + input_offset, buffer_size)) {
                 return storage;
             }
         }
@@ -308,7 +310,7 @@ private:
         {
             auto const mem = search_ahead ? 0 : input_offset;
             if (size_t const buffer_size = output_offset - mem) {
-                if (auto storage = getAlignedStorage(m_Memory + mem, buffer_size)) {
+                if (auto storage = getAlignedStorage(m_Buffer + mem, buffer_size)) {
                     if (search_ahead) {
                         m_SentinelRead.store(input_offset, std::memory_order_relaxed);
                         m_SentinelFollow = input_offset;
@@ -333,9 +335,9 @@ private:
                         followOffset = 0;
                         m_SentinelFollow = NO_SENTINEL;
                     }
-                } else if (auto const functionCxt = align<DataContext>(m_Memory + followOffset);
+                } else if (auto const functionCxt = align<DataContext>(m_Buffer + followOffset);
                         functionCxt->isFree()) {
-                    followOffset = functionCxt->getNextAddr() - m_Memory;
+                    followOffset = functionCxt->getNextAddr() - m_Buffer;
                     --remaining;
                 } else {
                     break;
@@ -361,8 +363,8 @@ private:
 
     [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag;
 
-    uint32_t const m_MemorySize;
-    std::byte *const m_Memory;
+    uint32_t const m_BufferSize;
+    std::byte *const m_Buffer;
 };
 
 #endif //FUNCTIONQUEUE_BUFFERQUEUE_MCSP_H

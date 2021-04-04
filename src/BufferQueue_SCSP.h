@@ -91,7 +91,7 @@ public:
 
         ~Buffer() noexcept {
             if (buffer_queue) {
-                uint32_t const nextOffset = getDataContext()->getNextAddr() - buffer_queue->m_Memory;
+                uint32_t const nextOffset = getDataContext()->getNextAddr() - buffer_queue->m_Buffer;
                 buffer_queue->m_Remaining.fetch_sub(1, std::memory_order_relaxed);
                 if constexpr (isReadProtected) {
                     buffer_queue->m_OutPutOffset.store(nextOffset, std::memory_order_relaxed);
@@ -107,19 +107,21 @@ public:
         explicit Buffer(BufferQueue_SCSP *buffer_queue) noexcept: buffer_queue{buffer_queue} {}
 
         auto getDataContext() const noexcept {
-            return align<DataContext>(buffer_queue->m_Memory + buffer_queue->m_OutPutOffset);
+            return align<DataContext>(buffer_queue->m_Buffer + buffer_queue->m_OutPutOffset);
         }
 
         BufferQueue_SCSP *buffer_queue;
     };
 
 public:
-    BufferQueue_SCSP(void *memory, std::size_t size) noexcept: m_Memory{static_cast<std::byte *const>(memory)},
-                                                               m_MemorySize{static_cast<uint32_t>(size)} {
+    BufferQueue_SCSP(void *memory, std::size_t size) noexcept: m_Buffer{static_cast<std::byte *const>(memory)},
+                                                               m_BufferSize{static_cast<uint32_t>(size)} {
         if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order_relaxed);
         if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
-        memset(m_Memory, 0, m_MemorySize);
+        memset(m_Buffer, 0, m_BufferSize);
     }
+
+    auto buffer_size() const noexcept { return m_BufferSize; }
 
     inline bool reserve_buffer() noexcept {
         if constexpr (isReadProtected) {
@@ -137,10 +139,10 @@ public:
         bool const found_sentinel = output_offset == m_SentinelRead.load(std::memory_order_relaxed);
         if (found_sentinel) m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
 
-        auto const data_cxt = align<DataContext>(m_Memory + (found_sentinel ? 0 : output_offset));
+        auto const data_cxt = align<DataContext>(m_Buffer + (found_sentinel ? 0 : output_offset));
         auto const[buffer_data, buffer_size] = data_cxt->getBuffer();
 
-        auto decr_rem_incr_output_offset = [&, nextOffset{data_cxt->getNextAddr() - m_Memory}] {
+        auto decr_rem_incr_output_offset = [&, nextOffset{data_cxt->getNextAddr() - m_Buffer}] {
             m_Remaining.fetch_sub(1, std::memory_order_relaxed);
             if constexpr (isReadProtected) {
                 m_OutPutOffset.store(nextOffset, std::memory_order_relaxed);
@@ -166,7 +168,7 @@ public:
         if (found_sentinel) m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
 
         m_OutPutOffset =
-                align<std::byte, alignof(DataContext)>(m_Memory + (found_sentinel ? 0 : output_offset)) - m_Memory;
+                align<std::byte, alignof(DataContext)>(m_Buffer + (found_sentinel ? 0 : output_offset)) - m_Buffer;
 
         return Buffer{this};
     }
@@ -184,14 +186,14 @@ public:
             return {nullptr, 0};
         }
 
-        m_CurrentBufferCxtOffset = reinterpret_cast<std::byte *>(storage.dc_ptr) - m_Memory;
+        m_CurrentBufferCxtOffset = reinterpret_cast<std::byte *>(storage.dc_ptr) - m_Buffer;
 
         return {storage.buffer, storage.avl_size};
     }
 
     void release_buffer(uint32_t bytes_used) noexcept {
-        auto const dc_ptr = Storage::createContext(m_Memory + m_CurrentBufferCxtOffset, bytes_used);
-        m_InputOffset = dc_ptr->getNextAddr() - m_Memory;
+        auto const dc_ptr = Storage::createContext(m_Buffer + m_CurrentBufferCxtOffset, bytes_used);
+        m_InputOffset = dc_ptr->getNextAddr() - m_Buffer;
         m_Remaining.fetch_add(1, std::memory_order_release);
 
         if constexpr (isWriteProtected) {
@@ -215,7 +217,7 @@ public:
 
         auto const dc_ptr = storage.createContext(
                 std::invoke(std::forward<F>(functor), storage.buffer, storage.avl_size));
-        m_InputOffset = dc_ptr->getNextAddr() - m_Memory;
+        m_InputOffset = dc_ptr->getNextAddr() - m_Buffer;
         m_Remaining.fetch_add(1, std::memory_order_release);
 
         if constexpr (isWriteProtected) {
@@ -237,10 +239,10 @@ public:
         auto const output_offset = m_OutPutOffset.load(std::memory_order_relaxed);
 
         if ((input_offset > output_offset) || (input_offset == output_offset && !remaining)) {
-            return std::max(getUsableSpace(m_Memory + input_offset, m_MemorySize - input_offset),
-                            getUsableSpace(m_Memory, output_offset));
+            return std::max(getUsableSpace(m_Buffer + input_offset, m_BufferSize - input_offset),
+                            getUsableSpace(m_Buffer, output_offset));
         } else if (input_offset < output_offset) {
-            return getUsableSpace(m_Memory + input_offset, output_offset - input_offset);
+            return getUsableSpace(m_Buffer + input_offset, output_offset - input_offset);
         } else return 0;
     }
 
@@ -268,9 +270,9 @@ private:
 
         auto const search_ahead = (input_offset > output_offset) || (input_offset == output_offset && !remaining);
 
-        if (size_t const buffer_size = m_MemorySize - input_offset;
+        if (size_t const buffer_size = m_BufferSize - input_offset;
                 search_ahead && buffer_size) {
-            if (auto storage = getAlignedStorage(m_Memory + input_offset, buffer_size)) {
+            if (auto storage = getAlignedStorage(m_Buffer + input_offset, buffer_size)) {
                 return storage;
             }
         }
@@ -278,7 +280,7 @@ private:
         {
             auto const mem = search_ahead ? 0 : input_offset;
             if (size_t const buffer_size = output_offset - mem) {
-                if (auto storage = getAlignedStorage(m_Memory + mem, buffer_size)) {
+                if (auto storage = getAlignedStorage(m_Buffer + mem, buffer_size)) {
                     if (search_ahead) {
                         m_SentinelRead.store(input_offset, std::memory_order_relaxed);
                     }
@@ -302,8 +304,8 @@ private:
     [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag;
     [[no_unique_address]] std::conditional_t<isReadProtected, std::atomic_flag, Null> m_ReadFlag;
 
-    uint32_t const m_MemorySize;
-    std::byte *const m_Memory;
+    uint32_t const m_BufferSize;
+    std::byte *const m_Buffer;
 };
 
 #endif //FUNCTIONQUEUE_BUFFERQUEUE_SCSP_H
