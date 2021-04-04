@@ -11,7 +11,7 @@
 #include <iostream>
 #include <cassert>
 
-template<bool, bool, typename R>
+template<bool synced, bool fixedSize, typename signature>
 class FunctionQueue {
 };
 
@@ -44,8 +44,10 @@ public:
     requires fixedSize
     FunctionQueue(void *buffer, size_t buffer_size) : m_CallableQueueMemory{static_cast<std::byte *>(buffer)},
                                                       m_CallableQueueMemorySize{buffer_size},
-                                                      m_Remaining{0}, m_RemainingFront{0} {
-        m_InputPos = m_OutPosReadCurrent = m_OutPosStart = m_CallableQueueMemory;
+                                                      m_Remaining{0}, m_RemainingFront{0},
+                                                      m_InputPos{static_cast<std::byte *>(buffer)},
+                                                      m_OutPosReadCurrent{static_cast<std::byte *>(buffer)},
+                                                      m_OutPosStart{static_cast<std::byte *>(buffer)} {
         if constexpr (!(synced && fixedSize)) m_OutPutEndPos = nullptr;
         memset(m_CallableQueueMemory, 0, m_CallableQueueMemorySize);
     }
@@ -470,7 +472,10 @@ private:
         }
     }
 
-    class Empty {
+    class Null {
+    public:
+        template<typename ...T>
+        explicit Null(T &&...) noexcept {}
     };
 
     using InvokeAndDestroy = R(*)(void *data, Args...);
@@ -479,16 +484,16 @@ private:
                                             (static_cast<uintptr_t>(std::numeric_limits<uint32_t>::max()) << 32u);
 
     std::conditional_t<synced, std::atomic<std::byte *>, std::byte *> m_OutPosReadCurrent;
-    std::conditional_t<synced && fixedSize, Empty, std::byte *> m_OutPutEndPos;
+    std::conditional_t<synced && fixedSize, Null, std::byte *> m_OutPutEndPos;
     std::conditional_t<synced, std::atomic<size_t>, size_t> m_Remaining;
 
     std::conditional_t<synced, std::atomic<std::byte *>, std::byte *> m_InputPos;
-    [[no_unique_address]] std::conditional_t<synced, std::atomic<std::byte *>, Empty> m_OutPosStart;
-    [[no_unique_address]] std::conditional_t<synced, std::atomic<size_t>, Empty> m_RemainingFront;
+    [[no_unique_address]] std::conditional_t<synced, std::atomic<std::byte *>, Null> m_OutPosStart;
+    [[no_unique_address]] std::conditional_t<synced, std::atomic<size_t>, Null> m_RemainingFront;
 
     std::conditional_t<fixedSize, std::byte *const, std::byte *> m_CallableQueueMemory;
     std::conditional_t<fixedSize, size_t const, size_t> m_CallableQueueMemorySize;
-    [[no_unique_address]] std::conditional_t<fixedSize, Empty, std::pmr::memory_resource *> m_MemoryResource;
+    [[no_unique_address]] std::conditional_t<fixedSize, Null, std::pmr::memory_resource *> m_MemoryResource;
 
     struct CallableCxt {
         std::atomic<uint32_t> fp_offset{};

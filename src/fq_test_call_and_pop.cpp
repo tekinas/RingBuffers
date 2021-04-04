@@ -10,9 +10,9 @@
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-//using LockFreeQueue = FunctionQueue<true, true, ComputeFunctionSig>;
+using LockFreeQueue = FunctionQueue<false, true, ComputeFunctionSig>;
 //using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
-using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
+//using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
 
 
 using folly::Function;
@@ -30,15 +30,15 @@ int main(int argc, char **argv) {
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
     println("using seed :", seed);
 
-    auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize);
-    LockFreeQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
-
     std::pmr::pool_options poolOptions{};
     std::pmr::unsynchronized_pool_resource p1{poolOptions}, p2{poolOptions};
     std::pmr::deque<Function<ComputeFunctionSig>> vectorComputeQueue{&p1};
     std::pmr::deque<std::function<ComputeFunctionSig>> vectorStdComputeQueue{&p2};
 
     CallbackGenerator callbackGenerator{seed};
+
+    auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize);
+    LockFreeQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
 
     size_t const compute_functors =
             [&] {
@@ -88,9 +88,13 @@ int main(int argc, char **argv) {
     size_t num = 0;
     {
         Timer timer{"function queue"};
-        while (rawComputeQueue.reserve_function()) {
-            num = rawComputeQueue.call_and_pop(num);
+        while (rawComputeQueue) {
+            num = rawComputeQueue.callAndPop(num);
         }
+
+        /*while (rawComputeQueue.reserve_function()) {
+            num = rawComputeQueue.call_and_pop(num);
+        }*/
     }
     println("result :", num, '\n');
 
