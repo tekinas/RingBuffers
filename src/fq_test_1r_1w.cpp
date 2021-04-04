@@ -9,12 +9,11 @@
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-//using LockFreeQueue = FunctionQueue<true, true, ComputeFunctionSig>;
-//using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
-using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
+//using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
+using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
 
 void
-test_lockFreeQueue(LockFreeQueue &rawComputeQueue, CallbackGenerator &callbackGenerator, size_t functions) noexcept;
+test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator &callbackGenerator, size_t functions) noexcept;
 
 int main(int argc, char **argv) {
     if (argc == 1) {
@@ -33,7 +32,7 @@ int main(int argc, char **argv) {
     println("total functions :", functions);
 
     auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize);
-    LockFreeQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
+    ComputeFunctionQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
 
     CallbackGenerator callbackGenerator{seed};
 
@@ -41,7 +40,7 @@ int main(int argc, char **argv) {
 }
 
 void
-test_lockFreeQueue(LockFreeQueue &rawComputeQueue, CallbackGenerator &callbackGenerator, size_t functions) noexcept {
+test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator &callbackGenerator, size_t functions) noexcept {
     StartFlag start_flag;
 
     std::jthread reader{[&] {

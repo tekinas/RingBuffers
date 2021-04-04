@@ -37,8 +37,8 @@ elseif (MSVC OR (WIN32 AND (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")))
 endif ()
 
 
-add_executable(fq_test_call_only src/fq_test_call_only.cpp)
-add_executable(fq_test_call_and_pop src/fq_test_call_and_pop.cpp)
+add_executable(fq_test_call_vector src/fq_test_call_vector.cpp)
+add_executable(fq_test_call_queue src/fq_test_call_queue.cpp)
 add_executable(fq_test_1r_1w src/fq_test_1r_1w.cpp)
 add_executable(fq_test_nr_nw_asio src/fq_test_nr_nw_asio.cpp)
 add_executable(fq_test_nr_nw src/fq_test_nr_nw.cpp)

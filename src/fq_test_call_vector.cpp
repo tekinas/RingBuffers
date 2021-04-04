@@ -10,9 +10,9 @@
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-using LockFreeQueue = FunctionQueue<ComputeFunctionSig, false>;
-//using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
-//using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
+using ComputeFunctionQueue = FunctionQueue<ComputeFunctionSig, false>;
+//using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
+//using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
 
 
 using folly::Function;
@@ -35,7 +35,7 @@ int main(int argc, char **argv) {
     CallbackGenerator callbackGenerator{seed};
 
     auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize);
-    LockFreeQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
+    ComputeFunctionQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
 
     size_t const compute_functors =
             [&] {
@@ -79,12 +79,12 @@ int main(int argc, char **argv) {
     println("total compute functions : ", compute_functors);
     constexpr double ONE_MB = 1024.0 * 1024.0;
     println("function queue storage :", rawQueueMemSize / ONE_MB, " Mb");
-    println("std::vector of folly::Function storage :", computeVectorStorage / ONE_MB, " Mb");
-    println("std::vector of std::function storage :", computeStdVectorStorage / ONE_MB, " Mb");
+    println("std::vector<folly::Function> storage :", computeVectorStorage / ONE_MB, " Mb");
+    println("std::vector<std::function> storage :", computeStdVectorStorage / ONE_MB, " Mb");
 
     println();
 
-    void test(LockFreeQueue &) noexcept;
+    void test(ComputeFunctionQueue &) noexcept;
     void test(std::vector<Function<ComputeFunctionSig>> &) noexcept;
     void test(std::vector<std::function<ComputeFunctionSig>> &) noexcept;
 
@@ -93,7 +93,7 @@ int main(int argc, char **argv) {
     test(computeStdVector);
 }
 
-void test(LockFreeQueue &rawComputeQueue) noexcept {
+void test(ComputeFunctionQueue &rawComputeQueue) noexcept {
     size_t num = 0;
     {
         Timer timer{"function queue"};
@@ -134,4 +134,6 @@ void *operator new(size_t bytes) {
     return malloc(bytes);
 }
 
-
+void operator delete(void *ptr) {
+    free(ptr);
+}

@@ -10,9 +10,9 @@
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-using LockFreeQueue = FunctionQueue<ComputeFunctionSig, false>;
-//using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
-//using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
+using ComputeFunctionQueue = FunctionQueue<ComputeFunctionSig, false>;
+//using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
+//using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
 
 
 using folly::Function;
@@ -36,7 +36,7 @@ int main(int argc, char **argv) {
     CallbackGenerator callbackGenerator{seed};
 
     auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize);
-    LockFreeQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
+    ComputeFunctionQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
 
     size_t const compute_functors =
             [&] {
@@ -82,12 +82,12 @@ int main(int argc, char **argv) {
     println("total compute functions : ", compute_functors);
     constexpr double ONE_MB = 1024.0 * 1024.0;
     println("function queue storage :", rawQueueMemSize / ONE_MB, " Mb");
-    println("std::dequeue of folly::Function storage :", computeDequeueStorage / ONE_MB, " Mb");
-    println("std::dequeue of std::function storage :", computeStdDequeueStorage / ONE_MB, " Mb");
+    println("std::dequeue<folly::Function> storage :", computeDequeueStorage / ONE_MB, " Mb");
+    println("std::dequeue<std::function> storage :", computeStdDequeueStorage / ONE_MB, " Mb");
 
     println();
 
-    void test(LockFreeQueue &) noexcept;
+    void test(ComputeFunctionQueue &) noexcept;
     void test(std::deque<Function<ComputeFunctionSig>> &) noexcept;
     void test(std::deque<std::function<ComputeFunctionSig>> &) noexcept;
 
@@ -96,7 +96,7 @@ int main(int argc, char **argv) {
     test(computeStdDequeue);
 }
 
-void test(LockFreeQueue &rawComputeQueue) noexcept {
+void test(ComputeFunctionQueue &rawComputeQueue) noexcept {
     size_t num = 0;
     {
         Timer timer{"function queue"};
@@ -107,26 +107,24 @@ void test(LockFreeQueue &rawComputeQueue) noexcept {
     println("result :", num, '\n');
 }
 
-void test(std::deque<Function<ComputeFunctionSig>> &vectorComputeQueue) noexcept {
+void test(std::deque<Function<ComputeFunctionSig>> &computeDequeue) noexcept {
     size_t num = 0;
     {
         Timer timer{"std::deque of functions"};
-        while (!vectorComputeQueue.empty()) {
-            num = vectorComputeQueue.front()(num);
-            vectorComputeQueue.pop_front();
+        for (auto end = computeDequeue.end(), begin = computeDequeue.begin(); begin != end; ++begin) {
+            num = (*begin)(num);
         }
     }
     println("result :", num, '\n');
 }
 
 
-void test(std::deque<std::function<ComputeFunctionSig>> &vectorStdComputeQueue) noexcept {
+void test(std::deque<std::function<ComputeFunctionSig>> &computeStdDequeue) noexcept {
     size_t num = 0;
     {
         Timer timer{"std::deque of std functions"};
-        while (!vectorStdComputeQueue.empty()) {
-            num = vectorStdComputeQueue.front()(num);
-            vectorStdComputeQueue.pop_front();
+        for (auto end = computeStdDequeue.end(), begin = computeStdDequeue.begin(); begin != end; ++begin) {
+            num = (*begin)(num);
         }
     }
     println("result :", num, '\n');
@@ -137,3 +135,6 @@ void *operator new(size_t bytes) {
     return malloc(bytes);
 }
 
+void operator delete(void *ptr) {
+    free(ptr);
+}

@@ -8,8 +8,8 @@
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-//using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, true, true, false>;
-using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, true, false, false>;
+//using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, true, true, false>;
+using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, true, false, false>;
 
 
 int main(int argc, char **argv) {
@@ -34,7 +34,7 @@ int main(int argc, char **argv) {
     println();
 
     auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize + 20);
-    LockFreeQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
+    ComputeFunctionQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
 
     {/// writing functions to the queue concurrently ::::
         Timer timer{"data write time :"};

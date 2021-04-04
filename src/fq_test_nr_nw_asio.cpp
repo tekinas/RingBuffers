@@ -10,7 +10,7 @@
 using namespace util;
 
 using ComputeFunctionSig = void();
-using LockFreeQueue = boost::asio::io_context;
+using ComputeFunctionQueue = boost::asio::io_context;
 
 struct ComputeCxt {
 private:
@@ -25,7 +25,7 @@ public:
                                                                                          callbackGenerator{seed},
                                                                                          timer{timer_str} {}
 
-    static void addComputeTask(std::unique_ptr<ComputeCxt> computeCxt, LockFreeQueue *functionQueue) noexcept {
+    static void addComputeTask(std::unique_ptr<ComputeCxt> computeCxt, ComputeFunctionQueue *functionQueue) noexcept {
         auto const cxtPtr = computeCxt.get();
         cxtPtr->callbackGenerator.addCallback(
                 [computeCxt{std::move(computeCxt)}, functionQueue]<typename T>(T &&t) mutable {
@@ -62,7 +62,7 @@ int main(int argc, char **argv) {
     }();
     println("total compute chains :", compute_chains);
 
-    LockFreeQueue rawComputeQueue;
+    ComputeFunctionQueue rawComputeQueue;
 
     for (auto t = compute_chains; t--;)
         ComputeCxt::addComputeTask(

@@ -8,8 +8,8 @@
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-//using LockFreeQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, true, false>;
-using LockFreeQueue = FunctionQueue_MCSP<ComputeFunctionSig, true, false, false>;
+//using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, true, false>;
+using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, true, false, false>;
 
 int main(int argc, char **argv) {
     if (argc == 1) {
@@ -29,7 +29,7 @@ int main(int argc, char **argv) {
     println("total num_threads :", num_threads);
 
     auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize);
-    LockFreeQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
+    ComputeFunctionQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
     StartFlag startFlag;
 
     std::vector<std::jthread> writer_threads;
