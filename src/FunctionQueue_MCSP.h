@@ -1,9 +1,5 @@
-//
-// Created by tekinas on 3/24/21.
-//
-
-#ifndef FUNCTIONQUEUE_FunctionQueue_MCSP_1_1_H
-#define FUNCTIONQUEUE_FunctionQueue_MCSP_1_1_H
+#ifndef FUNCTIONQUEUE_MCSP
+#define FUNCTIONQUEUE_MCSP
 
 #include <atomic>
 #include <cstring>
@@ -32,13 +28,13 @@ private:
 
     struct IndexedOffset {
     private:
-        uint32_t offset{};
-        uint32_t index{};
+        uint32_t offset;
+        uint32_t index;
 
         IndexedOffset(uint32_t offset, uint32_t index) noexcept: offset{offset}, index{index} {}
 
     public:
-        IndexedOffset() noexcept = default;
+        IndexedOffset(uint32_t offset) noexcept: offset{offset}, index{0} {}
 
         explicit operator uint32_t() const noexcept { return offset; }
 
@@ -121,7 +117,7 @@ private:
     };
 
 public:
-    FunctionQueue_MCSP(void *memory, std::size_t size) noexcept: m_Memory{static_cast<std::byte *const>(memory)},
+    FunctionQueue_MCSP(void *memory, std::size_t size) noexcept: m_Memory{static_cast<std::byte *>(memory)},
                                                                  m_MemorySize{static_cast<uint32_t>(size)} {
         if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
         memset(m_Memory, 0, m_MemorySize);
@@ -369,8 +365,8 @@ private:
     uint32_t m_OutputFollowOffset{0};
     uint32_t m_SentinelFollow{NO_SENTINEL};
 
-    std::atomic<OffsetType> m_OutPutOffset{};
     std::atomic<uint32_t> m_Remaining{0};
+    std::atomic<OffsetType> m_OutPutOffset{0};
     std::atomic<uint32_t> m_SentinelRead{NO_SENTINEL};
 
     [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag;
@@ -388,4 +384,4 @@ private:
                                             (static_cast<uintptr_t>(std::numeric_limits<uint32_t>::max()) << 32u);
 };
 
-#endif //FUNCTIONQUEUE_FunctionQueue_MCSP_1_1_H
+#endif //FUNCTIONQUEUE_MCSP

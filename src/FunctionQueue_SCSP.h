@@ -1,9 +1,5 @@
-//
-// Created by tekinas on 3/19/21.
-//
-
-#ifndef FUNCTIONQUEUE_FUNCTIONQUEUE_SCSP_H
-#define FUNCTIONQUEUE_FUNCTIONQUEUE_SCSP_H
+#ifndef FUNCTIONQUEUE_SCSP
+#define FUNCTIONQUEUE_SCSP
 
 #include <atomic>
 #include <cstring>
@@ -92,7 +88,7 @@ private:
     };
 
 public:
-    FunctionQueue_SCSP(void *memory, std::size_t size) noexcept: m_Memory{static_cast<std::byte *const>(memory)},
+    FunctionQueue_SCSP(void *memory, std::size_t size) noexcept: m_Memory{static_cast<std::byte *>(memory)},
                                                                  m_MemorySize{static_cast<uint32_t>(size)} {
         if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order_relaxed);
         if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
@@ -292,9 +288,9 @@ private:
     static constexpr uint32_t NO_SENTINEL{std::numeric_limits<uint32_t>::max()};
 
     uint32_t m_InputOffset{0};
+    std::atomic<uint32_t> m_Remaining{0};
     std::atomic<uint32_t> m_OutPutOffset{0};
     std::atomic<uint32_t> m_SentinelRead{NO_SENTINEL};
-    std::atomic<uint32_t> m_Remaining{0};
 
     [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag;
     [[no_unique_address]] std::conditional_t<isReadProtected, std::atomic_flag, Null> m_ReadFlag;
@@ -313,4 +309,4 @@ private:
 };
 
 
-#endif //FUNCTIONQUEUE_FUNCTIONQUEUE_SCSP_H
+#endif //FUNCTIONQUEUE_SCSP
