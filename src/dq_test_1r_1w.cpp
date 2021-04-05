@@ -90,7 +90,7 @@ test_buffer_queue(BufferQueue &buffer_queue, RNG &rng, size_t functions) noexcep
 
 //            if (auto space = buffer_queue.available_space(); space >= min_buffer_size)
             buffer_queue.allocate_and_release_buffer(min_buffer_size,
-                                                     [&](auto buffer, auto avl_size) mutable {
+                                                     [&, min_buffer_size](auto buffer, auto avl_size) mutable {
                                                          auto const fill_bytes{
                                                                  rng.getRand<uint32_t>(10, min_buffer_size)};
                                                          total_bytes += fill_bytes;
