@@ -12,7 +12,7 @@
 #include <memory>
 #include <functional>
 
-template<bool isWriteProtected, bool isIndexed, size_t buffer_align = 8>
+template<bool isWriteProtected, bool isIndexed, size_t buffer_align = sizeof(std::max_align_t)>
 class BufferQueue_MCSP {
 
 private:
@@ -141,7 +141,7 @@ public:
 
     auto buffer_size() const noexcept { return m_BufferSize; }
 
-    inline bool reserve_buffer() noexcept {
+    inline bool reserve_buffer() const noexcept {
         uint32_t rem = m_Remaining.load(std::memory_order_relaxed);
         if (!rem) return false;
 
@@ -151,7 +151,7 @@ public:
     }
 
     template<typename F>
-    inline decltype(auto) consume_buffer(F &&functor) noexcept {
+    inline decltype(auto) consume_buffer(F &&functor) const noexcept {
         DataContext *data_cxt;
         auto out_pos = m_OutPutOffset.load(std::memory_order::relaxed);
         bool found_sentinel;
@@ -180,7 +180,7 @@ public:
         }
     }
 
-    inline auto consume_buffer() noexcept {
+    inline auto consume_buffer() const noexcept {
         DataContext *data_cxt;
         auto out_pos = m_OutPutOffset.load(std::memory_order::relaxed);
         bool found_sentinel;
@@ -357,9 +357,9 @@ private:
     uint32_t m_OutputFollowOffset{0};
     uint32_t m_SentinelFollow{NO_SENTINEL};
 
-    std::atomic<OffsetType> m_OutPutOffset{};
-    std::atomic<uint32_t> m_Remaining{0};
-    std::atomic<uint32_t> m_SentinelRead{NO_SENTINEL};
+    mutable std::atomic<OffsetType> m_OutPutOffset{};
+    mutable std::atomic<uint32_t> m_Remaining{0};
+    mutable std::atomic<uint32_t> m_SentinelRead{NO_SENTINEL};
 
     [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag;
 

@@ -8,7 +8,7 @@
 #include <memory>
 #include <functional>
 
-template<bool isReadProtected, bool isWriteProtected, size_t buffer_align = 8>
+template<bool isReadProtected, bool isWriteProtected, size_t buffer_align = sizeof(std::max_align_t)>
 class BufferQueue_SCSP {
 
 private:
@@ -104,13 +104,14 @@ public:
     private:
         friend class BufferQueue_SCSP;
 
-        explicit Buffer(BufferQueue_SCSP *buffer_queue) noexcept: buffer_queue{buffer_queue} {}
+        explicit Buffer(BufferQueue_SCSP const *buffer_queue) noexcept: buffer_queue{buffer_queue} {}
 
         auto getDataContext() const noexcept {
-            return align<DataContext>(buffer_queue->m_Buffer + buffer_queue->m_OutPutOffset);
+            return align<DataContext>(
+                    buffer_queue->m_Buffer + buffer_queue->m_OutPutOffset.load(std::memory_order_relaxed));
         }
 
-        BufferQueue_SCSP *buffer_queue;
+        BufferQueue_SCSP const *buffer_queue;
     };
 
 public:
@@ -123,7 +124,7 @@ public:
 
     auto buffer_size() const noexcept { return m_BufferSize; }
 
-    inline bool reserve_buffer() noexcept {
+    inline bool reserve_buffer() const noexcept {
         if constexpr (isReadProtected) {
             if (m_ReadFlag.test_and_set(std::memory_order_relaxed)) return false;
             if (!m_Remaining.load(std::memory_order_acquire)) {
@@ -134,7 +135,7 @@ public:
     }
 
     template<typename F>
-    inline decltype(auto) consume_buffer(F &&functor) noexcept {
+    inline decltype(auto) consume_buffer(F &&functor) const noexcept {
         auto const output_offset = m_OutPutOffset.load(std::memory_order_relaxed);
         bool const found_sentinel = output_offset == m_SentinelRead.load(std::memory_order_relaxed);
         if (found_sentinel) m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
@@ -162,13 +163,14 @@ public:
         }
     }
 
-    inline auto consume_buffer() noexcept {
+    inline auto consume_buffer() const noexcept {
         auto const output_offset = m_OutPutOffset.load(std::memory_order_relaxed);
         bool const found_sentinel = output_offset == m_SentinelRead.load(std::memory_order_relaxed);
         if (found_sentinel) m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
 
-        m_OutPutOffset =
-                align<std::byte, alignof(DataContext)>(m_Buffer + (found_sentinel ? 0 : output_offset)) - m_Buffer;
+        m_OutPutOffset.store(
+                align<std::byte, alignof(DataContext)>(m_Buffer + (found_sentinel ? 0 : output_offset)) - m_Buffer,
+                std::memory_order_relaxed);
 
         return Buffer{this};
     }
@@ -297,12 +299,12 @@ private:
 
     uint32_t m_InputOffset{0};
     uint32_t m_CurrentBufferCxtOffset{0};
-    std::atomic<uint32_t> m_OutPutOffset{0};
-    std::atomic<uint32_t> m_SentinelRead{NO_SENTINEL};
-    std::atomic<uint32_t> m_Remaining{0};
+    mutable std::atomic<uint32_t> m_OutPutOffset{0};
+    mutable std::atomic<uint32_t> m_SentinelRead{NO_SENTINEL};
+    mutable std::atomic<uint32_t> m_Remaining{0};
 
-    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag;
-    [[no_unique_address]] std::conditional_t<isReadProtected, std::atomic_flag, Null> m_ReadFlag;
+    [[no_unique_address]]  std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag;
+    [[no_unique_address]] mutable std::conditional_t<isReadProtected, std::atomic_flag, Null> m_ReadFlag;
 
     uint32_t const m_BufferSize;
     std::byte *const m_Buffer;
