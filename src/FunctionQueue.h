@@ -53,9 +53,10 @@ private:
                               reinterpret_cast<std::byte *>(this) + obj_offset, getNextAddr()};
         }
 
-        inline auto getDestroyData() noexcept {
-            return std::tuple{reinterpret_cast<Destroy>(destroyFp_offset + fp_base),
-                              reinterpret_cast<std::byte *>(this) + obj_offset, getNextAddr()};
+        template<typename =void>
+        requires(destroyNonInvoked)
+        inline void destroyFO() noexcept {
+            reinterpret_cast<Destroy>(destroyFp_offset + fp_base)(reinterpret_cast<std::byte *>(this) + obj_offset);
         }
 
         inline auto getNextAddr() noexcept { return reinterpret_cast<std::byte *>(this) + stride; }
@@ -89,38 +90,24 @@ private:
 
 public:
     FunctionQueue(void *memory, std::size_t size) noexcept: m_Buffer{static_cast<std::byte *>(memory)},
-                                                            m_BufferSize{static_cast<uint32_t>(size)} {
-        memset(m_Buffer, 0, m_BufferSize);
-    }
+                                                            m_BufferSize{static_cast<uint32_t>(size)} {}
 
-    auto buffer_size() const noexcept { return m_BufferSize; }
+    inline auto buffer_size() const noexcept { return m_BufferSize; }
+
+    inline auto size() const noexcept { return m_Remaining; }
+
+    void clear() noexcept {
+        if constexpr (destroyNonInvoked) destroyAllFO();
+
+        m_InputOffset = 0;
+        m_Remaining = 0;
+        m_OutPutOffset = 0;
+        m_SentinelRead = NO_SENTINEL;
+    }
 
     ~FunctionQueue() noexcept {
         if constexpr (destroyNonInvoked) {
-            auto remaining = m_Remaining;
-
-            if (!remaining) return;
-
-            auto output_pos = m_OutPutOffset;
-
-            auto destroyAndForward = [&](auto functionCxt) noexcept {
-                auto const[dfp, objPtr, nextAddr] = functionCxt->getDestroyData();
-                dfp(objPtr);
-                output_pos = nextAddr - m_Buffer;
-            };
-
-            if (auto const sentinel = m_SentinelRead; sentinel != NO_SENTINEL) {
-                while (output_pos != sentinel) {
-                    destroyAndForward(align<FunctionContext>(m_Buffer + output_pos));
-                    --remaining;
-                }
-                output_pos = 0;
-            }
-
-            while (remaining) {
-                destroyAndForward(align<FunctionContext>(m_Buffer + output_pos));
-                --remaining;
-            }
+            destroyAllFO();
         }
     }
 
@@ -182,8 +169,6 @@ public:
         return true;
     }
 
-    [[nodiscard]] inline uint32_t size() const noexcept { return m_Remaining; }
-
 private:
 
     template<typename T>
@@ -207,6 +192,33 @@ private:
     template<typename Callable>
     static void destroy(void *data) noexcept {
         std::destroy_at(static_cast<Callable *>(data));
+    }
+
+    template<typename =void>
+    requires(destroyNonInvoked)
+    void destroyAllFO() {
+        auto remaining = m_Remaining;
+
+        if (!remaining) return;
+
+        auto output_pos = m_OutPutOffset;
+
+        auto destroyAndForward = [&](auto functionCxt) noexcept {
+            output_pos = functionCxt->getNextAddr() - m_Buffer;
+            functionCxt->destroyFO();
+        };
+
+        if (auto const sentinel = m_SentinelRead; sentinel != NO_SENTINEL) {
+            while (output_pos != sentinel) {
+                destroyAndForward(align<FunctionContext>(m_Buffer + output_pos));
+                --remaining;
+            }
+            output_pos = 0;
+        }
+
+        while (remaining--) {
+            destroyAndForward(align<FunctionContext>(m_Buffer + output_pos));
+        }
     }
 
     inline Storage getMemory(size_t obj_align, size_t obj_size) noexcept {

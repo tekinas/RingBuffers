@@ -66,9 +66,12 @@ private:
                               reinterpret_cast<std::byte *>(this) + obj_offset, getNextAddr()};
         }
 
-        inline auto getDestroyData() noexcept {
-            return std::tuple{reinterpret_cast<Destroy>(destroyFp_offset + fp_base),
-                              reinterpret_cast<std::byte *>(this) + obj_offset, getNextAddr()};
+        template<typename =void>
+        requires(destroyNonInvoked)
+        inline void destroyFO() noexcept {
+            if (fp_offset.exchange(0, std::memory_order_acquire)) {
+                reinterpret_cast<Destroy>(destroyFp_offset + fp_base)(reinterpret_cast<std::byte *>(this) + obj_offset);
+            }
         }
 
         inline auto getNextAddr() noexcept { return reinterpret_cast<std::byte *>(this) + stride; }
@@ -120,42 +123,30 @@ public:
     FunctionQueue_MCSP(void *memory, std::size_t size) noexcept: m_Buffer{static_cast<std::byte *>(memory)},
                                                                  m_BufferSize{static_cast<uint32_t>(size)} {
         if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
-        memset(m_Buffer, 0, m_BufferSize);
     }
-
-    auto buffer_size() const noexcept { return m_BufferSize; }
 
     ~FunctionQueue_MCSP() noexcept {
         if constexpr (destroyNonInvoked) {
-            auto remaining = m_Remaining.load(std::memory_order_acquire);
-
-            if (!remaining) return;
-
-            auto output_pos = m_OutputFollowOffset;
-
-            auto destroyAndForward = [&](auto functionCxt) noexcept {
-                auto const[dfp, objPtr, nextAddr] = functionCxt->getDestroyData();
-                dfp(objPtr);
-                output_pos = nextAddr - m_Buffer;
-            };
-
-            if (auto const sentinel = m_SentinelRead.load(std::memory_order_relaxed); sentinel != NO_SENTINEL) {
-                while (output_pos != sentinel) {
-                    auto const functionCxt = align<FunctionContext>(m_Buffer + output_pos);
-                    if (!functionCxt->isFree())
-                        destroyAndForward(functionCxt);
-                    --remaining;
-                }
-                output_pos = 0;
-            }
-
-            while (remaining) {
-                auto const functionCxt = align<FunctionContext>(m_Buffer + output_pos);
-                if (!functionCxt->isFree())
-                    destroyAndForward(functionCxt);
-                --remaining;
-            }
+            destroyAllFO();
         }
+    }
+
+    inline auto buffer_size() const noexcept { return m_BufferSize; }
+
+    inline auto size() const noexcept { return m_Remaining.load(std::memory_order_relaxed); }
+
+    void clear() noexcept {
+        if constexpr (destroyNonInvoked) destroyAllFO();
+
+        m_InputOffset = 0;
+        m_RemainingClean = 0;
+        m_OutputFollowOffset = 0;
+        m_SentinelFollow = NO_SENTINEL;
+
+        m_Remaining.store(0, std::memory_order_relaxed);
+        m_OutPutOffset.store(0, std::memory_order_relaxed);
+        m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
+        if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
     }
 
     inline bool reserve_function() noexcept {
@@ -249,8 +240,6 @@ public:
         return true;
     }
 
-    [[nodiscard]] inline uint32_t size() const noexcept { return m_Remaining.load(std::memory_order_relaxed); }
-
 private:
 
     template<typename T>
@@ -310,6 +299,35 @@ private:
             }
             m_RemainingClean = remaining;
             m_OutputFollowOffset = followOffset;
+        }
+    }
+
+    template<typename =void>
+    requires(destroyNonInvoked)
+    void destroyAllFO() {
+        cleanMemory();
+
+        auto remaining = m_Remaining.exchange(0, std::memory_order_acquire);
+
+        if (!remaining) return;
+
+        auto output_pos = m_OutputFollowOffset;
+
+        auto destroyAndForward = [&](auto functionCxt) noexcept {
+            output_pos = functionCxt->getNextAddr() - m_Buffer;
+            functionCxt->destroyFO();
+        };
+
+        if (auto const sentinel = m_SentinelFollow; sentinel != NO_SENTINEL) {
+            while (output_pos != sentinel) {
+                destroyAndForward(align<FunctionContext>(m_Buffer + output_pos));
+                --remaining;
+            }
+            output_pos = 0;
+        }
+
+        while (remaining--) {
+            destroyAndForward(align<FunctionContext>(m_Buffer + output_pos));
         }
     }
 

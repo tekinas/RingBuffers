@@ -50,4 +50,5 @@ add_executable(dq_test_1r_1w src/dq_test_1r_1w.cpp)
 
 if (UNIX)
     target_link_libraries(fq_test_nr_1w PRIVATE atomic)
+    target_link_libraries(dq_test_1r_1w PRIVATE atomic)
 endif ()

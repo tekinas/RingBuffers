@@ -25,7 +25,7 @@ private:
         IndexedOffset(uint32_t offset, uint32_t index) noexcept: offset{offset}, index{index} {}
 
     public:
-        IndexedOffset() noexcept = default;
+        IndexedOffset(uint32_t offset) noexcept: offset{offset}, index{0} {}
 
         explicit operator uint32_t() const noexcept { return offset; }
 
@@ -136,10 +136,24 @@ public:
     BufferQueue_MCSP(void *memory, std::size_t size) noexcept: m_Buffer{static_cast<std::byte *const>(memory)},
                                                                m_BufferSize{static_cast<uint32_t>(size)} {
         if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
-        memset(m_Buffer, 0, m_BufferSize);
     }
 
-    auto buffer_size() const noexcept { return m_BufferSize; }
+    inline auto buffer_size() const noexcept { return m_BufferSize; }
+
+    inline auto size() const noexcept { return m_Remaining.load(std::memory_order_relaxed); }
+
+    void clear() noexcept {
+        m_InputOffset = 0;
+        m_CurrentBufferCxtOffset = 0;
+        m_RemainingClean = 0;
+        m_OutputFollowOffset = 0;
+        m_SentinelFollow = 0;
+        m_OutPutOffset.store(0, std::memory_order_relaxed);
+        m_Remaining.store(0, std::memory_order_relaxed);
+        m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
+
+        if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
+    }
 
     inline bool reserve_buffer() const noexcept {
         uint32_t rem = m_Remaining.load(std::memory_order_relaxed);
@@ -276,8 +290,6 @@ public:
         } else return 0;
     }
 
-    [[nodiscard]] inline uint32_t size() const noexcept { return m_Remaining.load(std::memory_order_relaxed); }
-
 private:
 
     template<typename T, size_t _align = alignof(T)>
@@ -357,7 +369,7 @@ private:
     uint32_t m_OutputFollowOffset{0};
     uint32_t m_SentinelFollow{NO_SENTINEL};
 
-    mutable std::atomic<OffsetType> m_OutPutOffset{};
+    mutable std::atomic<OffsetType> m_OutPutOffset{0};
     mutable std::atomic<uint32_t> m_Remaining{0};
     mutable std::atomic<uint32_t> m_SentinelRead{NO_SENTINEL};
 

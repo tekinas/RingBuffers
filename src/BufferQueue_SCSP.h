@@ -119,10 +119,22 @@ public:
                                                                m_BufferSize{static_cast<uint32_t>(size)} {
         if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order_relaxed);
         if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
-        memset(m_Buffer, 0, m_BufferSize);
     }
 
-    auto buffer_size() const noexcept { return m_BufferSize; }
+    inline auto buffer_size() const noexcept { return m_BufferSize; }
+
+    inline auto size() const noexcept { return m_Remaining.load(std::memory_order_relaxed); }
+
+    void clear() noexcept {
+        m_InputOffset = 0;
+        m_CurrentBufferCxtOffset = 0;
+        m_OutPutOffset.store(0, std::memory_order_relaxed);
+        m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
+        m_Remaining.store(0, std::memory_order_relaxed);
+
+        if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
+        if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order_relaxed);
+    }
 
     inline bool reserve_buffer() const noexcept {
         if constexpr (isReadProtected) {
@@ -247,8 +259,6 @@ public:
             return getUsableSpace(m_Buffer + input_offset, output_offset - input_offset);
         } else return 0;
     }
-
-    [[nodiscard]] inline uint32_t size() const noexcept { return m_Remaining.load(std::memory_order_relaxed); }
 
 private:
 
