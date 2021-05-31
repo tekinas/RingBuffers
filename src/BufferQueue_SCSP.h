@@ -2,11 +2,11 @@
 #define FUNCTIONQUEUE_BUFFERQUEUE_SCSP_H
 
 #include <atomic>
-#include <cstring>
-#include <cstddef>
 #include <limits>
+#include <cstdint>
+#include <cstddef>
 #include <memory>
-#include <functional>
+#include <bit>
 
 template<bool isReadProtected, bool isWriteProtected, size_t buffer_align = sizeof(std::max_align_t)>
 class BufferQueue_SCSP {
@@ -28,7 +28,7 @@ private:
         explicit DataContext(uint32_t buffer_size) noexcept: buffer_size{buffer_size},
                                                              stride{static_cast<uint32_t>(
                                                                             align<std::byte, buffer_align>(this + 1) -
-                                                                            reinterpret_cast<std::byte *>(this) +
+                                                                            std::bit_cast<std::byte *>(this) +
                                                                             buffer_size)} {}
 
     public:
@@ -36,7 +36,7 @@ private:
             return {align<std::byte, buffer_align>(this + 1), buffer_size};
         }
 
-        inline auto getNextAddr() noexcept { return reinterpret_cast<std::byte *>(this) + stride; }
+        inline auto getNextAddr() noexcept { return std::bit_cast<std::byte *>(this) + stride; }
     };
 
     struct Storage {
@@ -55,7 +55,7 @@ private:
         }
 
         [[nodiscard]] inline auto createContext(uint32_t buffer_size) const noexcept {
-            new(dc_ptr) DataContext{buffer_size, static_cast<uint32_t>(buffer - reinterpret_cast<std::byte *>(dc_ptr) +
+            new(dc_ptr) DataContext{buffer_size, static_cast<uint32_t>(buffer - std::bit_cast<std::byte *>(dc_ptr) +
                                                                        buffer_size)};
             return dc_ptr;
         }
@@ -136,7 +136,7 @@ public:
         if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order_relaxed);
     }
 
-    inline bool reserve_buffer() const noexcept {
+    inline bool reserve() const noexcept {
         if constexpr (isReadProtected) {
             if (m_ReadFlag.test_and_set(std::memory_order_relaxed)) return false;
             if (!m_Remaining.load(std::memory_order_acquire)) {
@@ -147,7 +147,7 @@ public:
     }
 
     template<typename F>
-    inline decltype(auto) consume_buffer(F &&functor) const noexcept {
+    inline decltype(auto) consume(F &&functor) const noexcept {
         auto const output_offset = m_OutPutOffset.load(std::memory_order_relaxed);
         bool const found_sentinel = output_offset == m_SentinelRead.load(std::memory_order_relaxed);
         if (found_sentinel) m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
@@ -175,7 +175,7 @@ public:
         }
     }
 
-    inline auto consume_buffer() const noexcept {
+    inline auto consume() const noexcept {
         auto const output_offset = m_OutPutOffset.load(std::memory_order_relaxed);
         bool const found_sentinel = output_offset == m_SentinelRead.load(std::memory_order_relaxed);
         if (found_sentinel) m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
@@ -187,7 +187,7 @@ public:
         return Buffer{this};
     }
 
-    inline std::pair<std::byte *, uint32_t> allocate_buffer(uint32_t buffer_size) noexcept {
+    inline std::pair<std::byte *, uint32_t> allocate(uint32_t buffer_size) noexcept {
         if constexpr (isWriteProtected) {
             if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return {nullptr, 0};
         }
@@ -200,12 +200,12 @@ public:
             return {nullptr, 0};
         }
 
-        m_CurrentBufferCxtOffset = reinterpret_cast<std::byte *>(storage.dc_ptr) - m_Buffer;
+        m_CurrentBufferCxtOffset = std::bit_cast<std::byte *>(storage.dc_ptr) - m_Buffer;
 
         return {storage.buffer, storage.avl_size};
     }
 
-    void release_buffer(uint32_t bytes_used) noexcept {
+    void release(uint32_t bytes_used) noexcept {
         auto const dc_ptr = Storage::createContext(m_Buffer + m_CurrentBufferCxtOffset, bytes_used);
         m_InputOffset = dc_ptr->getNextAddr() - m_Buffer;
         m_Remaining.fetch_add(1, std::memory_order_release);
@@ -216,7 +216,7 @@ public:
     }
 
     template<typename F>
-    inline void allocate_and_release_buffer(uint32_t buffer_size, F &&functor) noexcept {
+    inline void allocate_and_release(uint32_t buffer_size, F &&functor) noexcept {
         if constexpr (isWriteProtected) {
             if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return;
         }
@@ -230,7 +230,7 @@ public:
         }
 
         auto const dc_ptr = storage.createContext(
-                std::invoke(std::forward<F>(functor), storage.buffer, storage.avl_size));
+                std::forward<F>(functor)(storage.buffer, storage.avl_size));
         m_InputOffset = dc_ptr->getNextAddr() - m_Buffer;
         m_Remaining.fetch_add(1, std::memory_order_release);
 
@@ -264,7 +264,7 @@ private:
 
     template<typename T, size_t _align = alignof(T)>
     static constexpr inline T *align(void *ptr) noexcept {
-        return reinterpret_cast<T *>((reinterpret_cast<uintptr_t>(ptr) - 1u + _align) & -_align);
+        return std::bit_cast<T *>((std::bit_cast<uintptr_t>(ptr) - 1u + _align) & -_align);
     }
 
     inline Storage getMemory(uint32_t size) noexcept {

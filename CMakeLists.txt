@@ -5,7 +5,7 @@ project(FunctionQueue)
 set(CMAKE_CXX_STANDARD 20)
 
 if (UNIX)
-    set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} "-fno-rtti -fno-exceptions")
+    set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} "-fno-rtti -fno-exceptions -static-libstdc++")
     link_libraries(pthread)
 elseif (WIN32)
     set(LIB_DIR "C:/Users/Aniket Bisht/Documents/Libraries/Windows")  # set the library directory for Windows ::::
@@ -45,8 +45,8 @@ add_executable(fq_test_nr_nw src/fq_test_nr_nw.cpp)
 add_executable(fq_test_nr_1w src/fq_test_nr_1w.cpp)
 add_executable(fq_test_1r_nw src/fq_test_1r_nw.cpp)
 add_executable(fq_test_mr_mw src/fq_test_mr_mw.cpp)
-
 add_executable(dq_test_1r_1w src/dq_test_1r_1w.cpp)
+add_executable(bq_test_throughput_1r_1w src/bq_test_throughput_1r_1w.cpp)
 
 if (UNIX)
     target_link_libraries(fq_test_nr_1w PRIVATE atomic)

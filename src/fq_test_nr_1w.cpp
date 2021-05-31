@@ -8,8 +8,8 @@
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-//using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, true, false, false>;
-using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, true, false>;
+using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, true, false, false>;
+//using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, true, false>;
 
 int main(int argc, char **argv) {
     if (argc == 1) {
@@ -17,7 +17,7 @@ int main(int argc, char **argv) {
     }
 
     size_t const rawQueueMemSize =
-            [&] { return (argc >= 2) ? atof(argv[1]) : 10000 / 1024.0 / 1024.0; }() * 1024 * 1024;
+            [&] { return (argc >= 2) ? atof(argv[1]) : 10000.0 / 1024.0 / 1024.0; }() * 1024 * 1024;
     println("using buffer of size :", rawQueueMemSize);
 
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();

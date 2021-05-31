@@ -2,11 +2,10 @@
 #define FUNCTIONQUEUE_SCSP
 
 #include <atomic>
-#include <cstring>
-#include <cstddef>
 #include <limits>
+#include <cstdint>
 #include <memory>
-#include <functional>
+#include <bit>
 
 template<typename T, bool isReadProtected, bool isWriteProtected, bool destroyNonInvoked = true>
 class FunctionQueue_SCSP {
@@ -42,24 +41,24 @@ private:
 
         template<typename Callable>
         FunctionContext(Type<Callable>, uint16_t obj_offset, uint16_t stride) noexcept:
-                fp_offset{static_cast<uint32_t>(reinterpret_cast<uintptr_t>(invokeAndDestroy < Callable > ) - fp_base)},
-                destroyFp_offset{static_cast<uint32_t>(reinterpret_cast<uintptr_t>(destroy < Callable > ) - fp_base)},
+                fp_offset{static_cast<uint32_t>(std::bit_cast<uintptr_t>(&invokeAndDestroy < Callable > ) - fp_base)},
+                destroyFp_offset{static_cast<uint32_t>(std::bit_cast<uintptr_t>(&destroy < Callable > ) - fp_base)},
                 obj_offset{obj_offset},
                 stride{stride} {}
 
     public:
         inline auto getReadData() noexcept {
-            return std::tuple{reinterpret_cast<InvokeAndDestroy>(fp_offset + fp_base),
-                              reinterpret_cast<std::byte *>(this) + obj_offset, getNextAddr()};
+            return std::tuple{std::bit_cast<InvokeAndDestroy>(fp_offset + fp_base),
+                              std::bit_cast<std::byte *>(this) + obj_offset, getNextAddr()};
         }
 
         template<typename =void>
         requires(destroyNonInvoked)
         inline void destroyFO() noexcept {
-            reinterpret_cast<Destroy>(destroyFp_offset + fp_base)(reinterpret_cast<std::byte *>(this) + obj_offset);
+            std::bit_cast<Destroy>(destroyFp_offset + fp_base)(std::bit_cast<std::byte *>(this) + obj_offset);
         }
 
-        inline auto getNextAddr() noexcept { return reinterpret_cast<std::byte *>(this) + stride; }
+        inline auto getNextAddr() noexcept { return std::bit_cast<std::byte *>(this) + stride; }
     };
 
     struct Storage {
@@ -84,7 +83,7 @@ private:
 
     private:
         [[nodiscard]] inline uint16_t getObjOffset() const noexcept {
-            return reinterpret_cast<std::byte *>(obj_ptr) - reinterpret_cast<std::byte *>(fp_ptr);
+            return std::bit_cast<std::byte *>(obj_ptr) - std::bit_cast<std::byte *>(fp_ptr);
         }
     };
 
@@ -210,17 +209,17 @@ private:
 
     template<typename T>
     static constexpr inline T *align(void *ptr) noexcept {
-        return reinterpret_cast<T *>((reinterpret_cast<uintptr_t>(ptr) - 1u + alignof(T)) & -alignof(T));
+        return std::bit_cast<T *>((std::bit_cast<uintptr_t>(ptr) - 1u + alignof(T)) & -alignof(T));
     }
 
     template<typename Callable>
     static R invokeAndDestroy(void *data, Args... args) noexcept {
         auto const functor_ptr = static_cast<Callable *>(data);
         if constexpr (std::is_same_v<R, void>) {
-            std::invoke(*functor_ptr, args...);
+            (*functor_ptr)(std::forward<Args>(args)...);
             std::destroy_at(functor_ptr);
         } else {
-            auto &&result{std::invoke(*functor_ptr, args...)};
+            auto &&result{(*functor_ptr)(std::forward<Args>(args)...)};
             std::destroy_at(functor_ptr);
             return std::forward<decltype(result)>(result);
         }
@@ -268,7 +267,7 @@ private:
         };
 
         auto incr_input_offset = [&](auto &storage) noexcept {
-            m_InputOffset = reinterpret_cast<std::byte *>(storage.obj_ptr) - m_Buffer + obj_size;
+            m_InputOffset = std::bit_cast<std::byte *>(storage.obj_ptr) - m_Buffer + obj_size;
         };
 
         auto const remaining = m_Remaining.load(std::memory_order_acquire);
@@ -321,7 +320,7 @@ private:
         }
     }
 
-    static inline const uintptr_t fp_base = reinterpret_cast<uintptr_t>(&invokeAndDestroy<decltype(&baseFP)>) &
+    static inline const uintptr_t fp_base = std::bit_cast<uintptr_t>(&invokeAndDestroy<decltype(&baseFP)>) &
                                             (static_cast<uintptr_t>(std::numeric_limits<uint32_t>::max()) << 32u);
 };
 

@@ -2,12 +2,10 @@
 #define FUNCTIONQUEUE_MCSP
 
 #include <atomic>
-#include <cstring>
-#include <cstddef>
 #include <limits>
+#include <cstdint>
 #include <memory>
-#include <functional>
-#include <mutex>
+#include <bit>
 
 template<typename T, bool isWriteProtected, bool isIndexed = false, bool destroyNonInvoked = true>
 class FunctionQueue_MCSP {
@@ -36,6 +34,8 @@ private:
     public:
         IndexedOffset(uint32_t offset) noexcept: offset{offset}, index{0} {}
 
+        IndexedOffset(IndexedOffset const &) noexcept = default;
+
         explicit operator uint32_t() const noexcept { return offset; }
 
         inline IndexedOffset getNext(uint32_t _offset) const noexcept {
@@ -62,19 +62,19 @@ private:
 
     public:
         inline auto getReadData() noexcept {
-            return std::tuple{reinterpret_cast<InvokeAndDestroy>(fp_offset.load(std::memory_order_relaxed) + fp_base),
-                              reinterpret_cast<std::byte *>(this) + obj_offset, getNextAddr()};
+            return std::tuple{std::bit_cast<InvokeAndDestroy>(fp_offset.load(std::memory_order_relaxed) + fp_base),
+                              std::bit_cast<std::byte *>(this) + obj_offset, getNextAddr()};
         }
 
         template<typename =void>
         requires(destroyNonInvoked)
         inline void destroyFO() noexcept {
             if (fp_offset.exchange(0, std::memory_order_acquire)) {
-                reinterpret_cast<Destroy>(destroyFp_offset + fp_base)(reinterpret_cast<std::byte *>(this) + obj_offset);
+                std::bit_cast<Destroy>(destroyFp_offset + fp_base)(std::bit_cast<std::byte *>(this) + obj_offset);
             }
         }
 
-        inline auto getNextAddr() noexcept { return reinterpret_cast<std::byte *>(this) + stride; }
+        inline auto getNextAddr() noexcept { return std::bit_cast<std::byte *>(this) + stride; }
 
         inline void free() noexcept {
             fp_offset.store(0, std::memory_order_release);
@@ -87,8 +87,8 @@ private:
     private:
         template<typename Callable>
         FunctionContext(Type<Callable>, uint16_t obj_offset, uint16_t stride) noexcept:
-                fp_offset{static_cast<uint32_t>(reinterpret_cast<uintptr_t>(invokeAndDestroy < Callable > ) - fp_base)},
-                destroyFp_offset{static_cast<uint32_t>(reinterpret_cast<uintptr_t>(destroy < Callable > ) - fp_base)},
+                fp_offset{static_cast<uint32_t>(std::bit_cast<uintptr_t>(&invokeAndDestroy < Callable > ) - fp_base)},
+                destroyFp_offset{static_cast<uint32_t>(std::bit_cast<uintptr_t>(&destroy < Callable > ) - fp_base)},
                 obj_offset{obj_offset},
                 stride{stride} {}
     };
@@ -115,7 +115,7 @@ private:
 
     private:
         [[nodiscard]] inline uint16_t getObjOffset() const noexcept {
-            return reinterpret_cast<std::byte *>(obj_ptr) - reinterpret_cast<std::byte *>(fp_ptr);
+            return std::bit_cast<std::byte *>(obj_ptr) - std::bit_cast<std::byte *>(fp_ptr);
         }
     };
 
@@ -244,20 +244,20 @@ private:
 
     template<typename T>
     static constexpr inline T *align(void *ptr) noexcept {
-        return reinterpret_cast<T *>((reinterpret_cast<uintptr_t>(ptr) - 1u + alignof(T)) & -alignof(T));
+        return std::bit_cast<T *>((std::bit_cast<uintptr_t>(ptr) - 1u + alignof(T)) & -alignof(T));
     }
 
     template<typename T>
     static inline void *
     align(void *&ptr, size_t &space) noexcept {
-        const auto intptr = reinterpret_cast<uintptr_t>(ptr);
+        const auto intptr = std::bit_cast<uintptr_t>(ptr);
         const auto aligned = (intptr - 1u + alignof(T)) & -alignof(T);
         const auto diff = aligned - intptr;
         if ((sizeof(T) + diff) > space)
             return nullptr;
         else {
             space -= diff;
-            return ptr = reinterpret_cast<void *>(aligned);
+            return ptr = std::bit_cast<void *>(aligned);
         }
     }
 
@@ -265,10 +265,10 @@ private:
     static R invokeAndDestroy(void *data, Args... args) noexcept {
         auto const functor_ptr = static_cast<Callable *>(data);
         if constexpr (std::is_same_v<R, void>) {
-            std::invoke(*functor_ptr, args...);
+            (*functor_ptr)(std::forward<Args>(args)...);
             std::destroy_at(functor_ptr);
         } else {
-            auto &&result{std::invoke(*functor_ptr, args...)};
+            auto &&result{(*functor_ptr)(std::forward<Args>(args)...)};
             std::destroy_at(functor_ptr);
             return std::forward<decltype(result)>(result);
         }
@@ -341,7 +341,7 @@ private:
         };
 
         auto incr_input_offset = [&](auto &storage) noexcept {
-            m_InputOffset = reinterpret_cast<std::byte *>(storage.obj_ptr) - m_Buffer + obj_size;
+            m_InputOffset = std::bit_cast<std::byte *>(storage.obj_ptr) - m_Buffer + obj_size;
         };
 
         auto const remaining = m_RemainingClean;
@@ -400,7 +400,7 @@ private:
         }
     }
 
-    static inline const uintptr_t fp_base = reinterpret_cast<uintptr_t>(&invokeAndDestroy<decltype(&baseFP)>) &
+    static inline const uintptr_t fp_base = std::bit_cast<uintptr_t>(&invokeAndDestroy<decltype(&baseFP)>) &
                                             (static_cast<uintptr_t>(std::numeric_limits<uint32_t>::max()) << 32u);
 };
 
