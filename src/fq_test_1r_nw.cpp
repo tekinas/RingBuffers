@@ -60,7 +60,7 @@ int main(int argc, char **argv) {
         auto threads = num_threads;
 
         while (threads) {
-            while (!rawComputeQueue.reserve_function()) std::this_thread::yield();
+            while (!rawComputeQueue.reserve()) std::this_thread::yield();
             auto const res = rawComputeQueue.call_and_pop(seed);
 //            std::cout << res << '\n';
             if (res == std::numeric_limits<size_t>::max()) --threads;

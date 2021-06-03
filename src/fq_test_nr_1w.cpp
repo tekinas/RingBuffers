@@ -48,7 +48,7 @@ int main(int argc, char **argv) {
                 Timer timer{str};
 
                 while (true) {
-                    while (!rawComputeQueue.reserve_function()) std::this_thread::yield();
+                    while (!rawComputeQueue.reserve()) std::this_thread::yield();
                     auto const res = rawComputeQueue.call_and_pop(seed);
                     if (res == std::numeric_limits<size_t>::max()) break;
                     else res_vec.push_back(res);

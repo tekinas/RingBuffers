@@ -149,7 +149,7 @@ public:
         if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
     }
 
-    inline bool reserve_function() noexcept {
+    inline bool reserve() noexcept {
         uint32_t rem = m_Remaining.load(std::memory_order_relaxed);
         if (!rem) return false;
 

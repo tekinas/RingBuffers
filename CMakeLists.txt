@@ -46,6 +46,7 @@ add_executable(fq_test_nr_1w src/fq_test_nr_1w.cpp)
 add_executable(fq_test_1r_nw src/fq_test_1r_nw.cpp)
 add_executable(fq_test_mr_mw src/fq_test_mr_mw.cpp)
 add_executable(dq_test_1r_1w src/dq_test_1r_1w.cpp)
+add_executable(oq_test_1r_1w src/oq_test_1r_1w.cpp)
 add_executable(bq_test_throughput_1r_1w src/bq_test_throughput_1r_1w.cpp)
 
 if (UNIX)

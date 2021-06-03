@@ -115,7 +115,7 @@ public:
         if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order_relaxed);
     }
 
-    inline bool reserve_function() noexcept {
+    inline bool reserve() noexcept {
         if constexpr (isReadProtected) {
             if (m_ReadFlag.test_and_set(std::memory_order_relaxed)) return false;
             if (!m_Remaining.load(std::memory_order_acquire)) {

@@ -9,8 +9,8 @@
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
-//using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
+//using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
+using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
 
 void
 test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator &callbackGenerator,
@@ -52,7 +52,7 @@ test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator &cal
             Timer timer{"reader"};
             while (res != std::numeric_limits<size_t>::max()) {
                 num = res;
-                if (rawComputeQueue.reserve_function()) {
+                if (rawComputeQueue.reserve()) {
                     res = rawComputeQueue.call_and_pop(res);
 //                    println(res);
                 } else {

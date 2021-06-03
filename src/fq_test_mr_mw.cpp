@@ -80,7 +80,7 @@ int main(int argc, char **argv) {
                     res_vec.reserve(11 * functions / numReaderThreads / 10);
 
                     uint32_t func{0};
-                    while (rawComputeQueue.reserve_function()) {
+                    while (rawComputeQueue.reserve()) {
                         auto const res = rawComputeQueue.call_and_pop(seed);
                         res_vec.push_back(res);
                         ++func;

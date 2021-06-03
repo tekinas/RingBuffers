@@ -83,6 +83,8 @@ public:
 
         Buffer(Buffer &&other) noexcept: buffer_queue{std::exchange(other.buffer_queue, nullptr)} {}
 
+        Buffer(Buffer const &) = delete;
+
         Buffer &operator=(Buffer &&other) noexcept {
             this->~Buffer();
             buffer_queue = std::exchange(other.buffer_queue, nullptr);
@@ -107,7 +109,7 @@ public:
         explicit Buffer(BufferQueue_SCSP const *buffer_queue) noexcept: buffer_queue{buffer_queue} {}
 
         auto getDataContext() const noexcept {
-            return align<DataContext>(
+            return std::bit_cast<DataContext *>(
                     buffer_queue->m_Buffer + buffer_queue->m_OutPutOffset.load(std::memory_order_relaxed));
         }
 
