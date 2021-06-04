@@ -399,7 +399,6 @@ namespace util {
             explicit
             param_type(realType a, realType b = realType(1))
                     : mA(a), mB(b) {
-                glibcxx_assert(mA <= mB);
             }
 
             result_type

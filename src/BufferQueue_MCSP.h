@@ -22,7 +22,7 @@ private:
         IndexedOffset(uint32_t offset, uint32_t index) noexcept: offset{offset}, index{index} {}
 
     public:
-        IndexedOffset(uint32_t offset) noexcept: offset{offset}, index{0} {}
+        explicit IndexedOffset(uint32_t offset) noexcept: offset{offset}, index{0} {}
 
         explicit operator uint32_t() const noexcept { return offset; }
 

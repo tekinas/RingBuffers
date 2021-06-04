@@ -2,10 +2,8 @@
 #define FUNCTIONQUEUE_OBJECTQUEUE_SCSP_H
 
 #include <atomic>
-#include <limits>
 #include <cstdint>
 #include <memory>
-#include <bit>
 
 template<typename ObjectType, bool isReadProtected, bool isWriteProtected>
 class ObjectQueue_SCSP {
@@ -13,28 +11,28 @@ public:
 
     class Ptr {
     public:
-        Ptr(Ptr &&other) noexcept: object_queue{std::exchange(other.object_queue, nullptr)} {}
+        inline Ptr(Ptr &&other) noexcept: object_queue{std::exchange(other.object_queue, nullptr)} {}
 
         Ptr(Ptr const &) = delete;
 
-        Ptr &operator=(Ptr &&other) noexcept {
+        inline Ptr &operator=(Ptr &&other) noexcept {
             this->~Ptr();
             object_queue = std::exchange(other.object_queue, nullptr);
             return *this;
         }
 
-        ObjectType &operator*() const noexcept {
+        inline ObjectType &operator*() const noexcept {
             return object_queue->m_Array[object_queue->m_OutPutIndex.load(std::memory_order_relaxed)];
         }
 
-        ObjectType *get() const noexcept {
+        inline ObjectType *get() const noexcept {
             return object_queue->m_Array + object_queue->m_OutPutIndex.load(std::memory_order_relaxed);
         }
 
-        ~Ptr() noexcept {
+        inline ~Ptr() noexcept {
             if (object_queue) {
                 auto const output_index = object_queue->m_OutPutIndex.load(std::memory_order_relaxed);
-                std::destroy_at(object_queue->m_Array + output_index);
+                object_queue->destroy(output_index);
                 object_queue->m_Remaining.fetch_sub(1, std::memory_order_relaxed);
 
                 auto const nextIndex = output_index == object_queue->m_LastElementIndex ? 0 : (output_index + 1);
@@ -56,14 +54,19 @@ public:
 
 
 public:
-    ObjectQueue_SCSP(void *buffer, uint32_t count) : m_Array{buffer}, m_LastElementIndex{count - 1} {
+    inline ObjectQueue_SCSP(void *buffer, uint32_t count) : m_Array{static_cast<ObjectType *>(buffer)},
+                                                            m_LastElementIndex{count - 1} {
         if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order_relaxed);
         if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
     }
 
+    inline ~ObjectQueue_SCSP() noexcept {
+        destroyAllObjects();
+    }
+
     inline auto size() const noexcept { return m_Remaining.load(std::memory_order_relaxed); }
 
-    void clear() noexcept {
+    inline void clear() noexcept {
         destroyAllObjects();
 
         m_InputIndex = 0;
@@ -73,7 +76,7 @@ public:
         if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order_relaxed);
     }
 
-    inline bool reserve() noexcept {
+    inline bool reserve() const noexcept {
         if constexpr (isReadProtected) {
             if (m_ReadFlag.test_and_set(std::memory_order_relaxed)) return false;
             if (!m_Remaining.load(std::memory_order_acquire)) {
@@ -84,11 +87,11 @@ public:
     }
 
     template<typename F>
-    inline decltype(auto) consume(F &&functor) const noexcept {
+    decltype(auto) consume(F &&functor) const noexcept {
         auto const output_index = m_OutPutIndex.load(std::memory_order_relaxed);
 
         auto cleanup = [&, output_index] { /// destroy obj, decrement remaining and set next output index
-            std::destroy_at(m_Array + output_index);
+            destroy(output_index);
             m_Remaining.fetch_sub(1, std::memory_order_relaxed);
 
             auto const nextIndex = output_index == m_LastElementIndex ? 0 : (output_index + 1);
@@ -115,13 +118,52 @@ public:
     }
 
     template<typename F>
-    inline decltype(auto) consume_all(F &&functor) const noexcept {
+    uint32_t consume_all(F &&functor) const noexcept {
+        auto const rem = m_Remaining.load(std::memory_order_relaxed);
+        auto output_index = m_OutPutIndex.load(std::memory_order_relaxed);
 
+        if ((m_LastElementIndex - output_index + 1) >= rem) {
+            auto count = rem;
+            --output_index;
+            while (count--) {
+                ++output_index;
+                std::forward<F>(functor)(m_Array[output_index]);
+                destroy(output_index);
+            }
+
+            output_index = output_index == m_LastElementIndex ? 0 : (output_index + 1); /// set next index
+        } else {
+            auto const end1 = m_LastElementIndex + 1;
+            auto const end2 = rem - (end1 - output_index);
+
+            while (output_index != end1) {
+                std::forward<F>(functor)(m_Array[output_index]);
+                destroy(output_index);
+                ++output_index;
+            }
+
+            output_index = 0;
+            while (output_index != end2) {
+                std::forward<F>(functor)(m_Array[output_index]);
+                destroy(output_index);
+                ++output_index;
+            }
+        }
+
+        m_Remaining.fetch_sub(rem, std::memory_order_relaxed);
+
+        if constexpr (isReadProtected) {
+            m_OutPutIndex.store(output_index, std::memory_order_relaxed);
+            m_ReadFlag.clear(std::memory_order_release);
+        } else
+            m_OutPutIndex.store(output_index, std::memory_order_release);
+
+        return rem;
     }
 
     template<typename T>
     requires std::same_as<std::decay_t<T>, ObjectType>
-    inline bool push_back(T &&obj) noexcept {
+    bool push_back(T &&obj) noexcept {
         if constexpr (isWriteProtected) {
             if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return false;
         }
@@ -134,7 +176,7 @@ public:
 
         m_Remaining.fetch_add(1, std::memory_order_release);
 
-        m_InputIndex += m_InputIndex == m_LastElementIndex ? -m_LastElementIndex : 1;
+        m_InputIndex = m_InputIndex == m_LastElementIndex ? 0 : (m_InputIndex + 1);
 
         if constexpr (isWriteProtected) {
             m_WriteFlag.clear(std::memory_order_release);
@@ -144,7 +186,7 @@ public:
     }
 
     template<typename... Args>
-    inline bool emplace_back(Args &&...args) noexcept {
+    bool emplace_back(Args &&...args) noexcept {
         if constexpr (isWriteProtected) {
             if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return false;
         }
@@ -157,7 +199,7 @@ public:
 
         m_Remaining.fetch_add(1, std::memory_order_release);
 
-        m_InputIndex += m_InputIndex == m_LastElementIndex ? -m_LastElementIndex : 1;
+        m_InputIndex = m_InputIndex == m_LastElementIndex ? 0 : (m_InputIndex + 1);
 
         if constexpr (isWriteProtected) {
             m_WriteFlag.clear(std::memory_order_release);
@@ -167,7 +209,7 @@ public:
     }
 
 private:
-    void destroyAllObjects() noexcept {
+    inline void destroyAllObjects() noexcept {
         if constexpr(!std::is_trivially_destructible_v<ObjectType>) {
             auto const output_index = m_OutPutIndex.load(std::memory_order_relaxed);
             if (output_index > m_InputIndex ||
@@ -176,6 +218,12 @@ private:
                 std::destroy_n(m_Array, output_index);
             } else if (output_index < m_InputIndex)
                 std::destroy_n(m_Array + output_index, m_InputIndex - output_index);
+        }
+    }
+
+    inline void destroy(uint32_t index) const noexcept {
+        if constexpr(!std::is_trivially_destructible_v<ObjectType>) {
+            std::destroy_at(m_Array + index);
         }
     }
 
@@ -191,7 +239,7 @@ private:
     mutable std::atomic<uint32_t> m_OutPutIndex{0};
 
     [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag;
-    [[no_unique_address]] std::conditional_t<isReadProtected, std::atomic_flag, Null> m_ReadFlag;
+    [[no_unique_address]] mutable std::conditional_t<isReadProtected, std::atomic_flag, Null> m_ReadFlag;
 
     uint32_t const m_LastElementIndex;
     ObjectType *const m_Array;
