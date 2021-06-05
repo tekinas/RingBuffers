@@ -1,5 +1,5 @@
-#include "BufferQueue_MCSP.h"
-#include "BufferQueue_SCSP.h"
+#include "../BufferQueue_MCSP.h"
+#include "../BufferQueue_SCSP.h"
 #include "util.h"
 
 #include <thread>

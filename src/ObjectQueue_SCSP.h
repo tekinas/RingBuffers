@@ -45,7 +45,7 @@ public:
         }
 
     private:
-        friend class ObjectQueue;
+        friend class ObjectQueue_SCSP;
 
         explicit Ptr(ObjectType const *object_queue) noexcept: object_queue{object_queue} {}
 
