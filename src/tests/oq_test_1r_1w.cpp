@@ -1,4 +1,5 @@
 #include "../ObjectQueue_SCSP.h"
+#include "../ObjectQueue_SCSP_op.h"
 #include "util.h"
 
 #include <boost/container_hash/hash.hpp>
@@ -28,6 +29,7 @@ struct Obj {
 
 using boost_queue = boost::lockfree::spsc_queue<Obj>;
 using ObjectQueue = ObjectQueue_SCSP<Obj, false, false>;
+using ObjectQueue_op = ObjectQueue_SCSP_op<Obj, false, false>;
 
 void test(boost_queue &objectQueue, uint32_t objects, std::size_t seed) noexcept {
     std::jthread reader{[&objectQueue, objects] {
@@ -58,6 +60,36 @@ void test(boost_queue &objectQueue, uint32_t objects, std::size_t seed) noexcept
         while (obj--) {
             Obj o{rng};
             while (!objectQueue.push(o)) std::this_thread::yield();
+        }
+    }};
+}
+
+void test(ObjectQueue_op &objectQueue, uint32_t objects, std::size_t seed) noexcept {
+    std::jthread reader{[&objectQueue, objects] {
+        Timer timer{"ObjectQueue read time "};
+
+        auto obj = objects;
+        std::size_t seed{0};
+        while (obj) {
+            while (objectQueue.empty()) std::this_thread::yield();
+
+            obj -= objectQueue.consume_all([&](Obj const &obj) {
+                obj.hash(seed);
+            });
+        }
+
+        println("ObjectQueue hash of ", objects, " objects : ", seed);
+    }};
+
+    std::jthread writer{[&objectQueue, objects, seed] {
+        Random<> rng{seed};
+
+        auto obj = objects;
+        while (obj--) {
+//            Obj o{rng};
+//            while (!objectQueue.push_back(o)) std::this_thread::yield();
+
+            while (!objectQueue.emplace_back(rng)) std::this_thread::yield();
         }
     }};
 }
@@ -103,8 +135,12 @@ int main() {
     auto buffer = std::make_unique<std::aligned_storage_t<sizeof(Obj), alignof(Obj)>[]>(object_count);
     ObjectQueue objectQueue{buffer.get(), object_count};
 
+    auto buffer_op = std::make_unique<std::aligned_storage_t<sizeof(Obj), alignof(Obj)>[]>(object_count);
+    ObjectQueue_op objectQueueOp{buffer_op.get(), object_count};
+
     boost_queue boostQueue{object_count};
 
     test(objectQueue, objects, seed);
-//    test(boostQueue, objects, seed);
+    test(boostQueue, objects, seed);
+    test(objectQueueOp, objects, seed);
 }
