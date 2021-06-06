@@ -146,12 +146,13 @@ public:
 
             objects_consumed = (end1 - output_index) + end2;
 
-        } else if (output_index < input_index) {
+        } else { /// if (output_index < input_index), case of (output_index == input_index) is not handled as consume functions must be called after successful reserve
             consume_and_destroy(output_index, input_index);
             objects_consumed = input_index - output_index;
-        } else return 0;
+        }
 
         m_OutPutIndex.store(input_index, std::memory_order_release);
+
         return objects_consumed;
     }
 

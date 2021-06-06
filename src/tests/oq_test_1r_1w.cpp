@@ -92,8 +92,10 @@ void test(ObjectQueue &objectQueue, uint32_t objects, std::size_t seed) noexcept
 
         auto obj = objects;
         while (obj--) {
-            Obj o{rng};
-            while (!objectQueue.push_back(o)) std::this_thread::yield();
+            /*Obj o{rng};
+            while (!objectQueue.push_back(o)) std::this_thread::yield();*/
+
+            while (!objectQueue.emplace_back(rng)) std::this_thread::yield();
         }
     }};
 }
