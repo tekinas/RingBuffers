@@ -2,25 +2,24 @@
 #define FUNCTIONQUEUE_SCSP
 
 #include <atomic>
-#include <limits>
-#include <cstdint>
-#include <memory>
 #include <bit>
+#include <cstdint>
+#include <limits>
+#include <memory>
 
 template<typename T, bool isReadProtected, bool isWriteProtected, bool destroyNonInvoked = true>
 class FunctionQueue_SCSP {
 };
 
-template<typename R, typename ...Args, bool isReadProtected, bool isWriteProtected, bool destroyNonInvoked>
+template<typename R, typename... Args, bool isReadProtected, bool isWriteProtected, bool destroyNonInvoked>
 class FunctionQueue_SCSP<R(Args...), isReadProtected, isWriteProtected, destroyNonInvoked> {
 private:
-
-    using InvokeAndDestroy = R(*)(void *obj_ptr, Args...) noexcept;
+    using InvokeAndDestroy = R (*)(void *obj_ptr, Args...) noexcept;
     using Destroy = void (*)(void *obj_ptr) noexcept;
 
     class Null {
     public:
-        template<typename ...T>
+        template<typename... T>
         explicit Null(T &&...) noexcept {}
     };
 
@@ -40,11 +39,10 @@ private:
         friend class Storage;
 
         template<typename Callable>
-        FunctionContext(Type<Callable>, uint16_t obj_offset, uint16_t stride) noexcept:
-                fp_offset{static_cast<uint32_t>(std::bit_cast<uintptr_t>(&invokeAndDestroy < Callable > ) - fp_base)},
-                destroyFp_offset{static_cast<uint32_t>(std::bit_cast<uintptr_t>(&destroy < Callable > ) - fp_base)},
-                obj_offset{obj_offset},
-                stride{stride} {}
+        FunctionContext(Type<Callable>, uint16_t obj_offset, uint16_t stride) noexcept : fp_offset{static_cast<uint32_t>(std::bit_cast<uintptr_t>(&invokeAndDestroy<Callable>) - fp_base)},
+                                                                                         destroyFp_offset{static_cast<uint32_t>(std::bit_cast<uintptr_t>(&destroy<Callable>) - fp_base)},
+                                                                                         obj_offset{obj_offset},
+                                                                                         stride{stride} {}
 
     public:
         inline auto getReadData() noexcept {
@@ -52,9 +50,8 @@ private:
                               std::bit_cast<std::byte *>(this) + obj_offset, getNextAddr()};
         }
 
-        template<typename =void>
-        requires(destroyNonInvoked)
-        inline void destroyFO() noexcept {
+        template<typename = void>
+        requires(destroyNonInvoked) inline void destroyFO() noexcept {
             std::bit_cast<Destroy>(destroyFp_offset + fp_base)(std::bit_cast<std::byte *>(this) + obj_offset);
         }
 
@@ -67,18 +64,18 @@ private:
 
         Storage() noexcept = default;
 
-        Storage(void *fp_ptr, void *obj_ptr) noexcept: fp_ptr{static_cast<FunctionContext *>(fp_ptr)},
-                                                       obj_ptr{obj_ptr} {}
+        Storage(void *fp_ptr, void *obj_ptr) noexcept : fp_ptr{static_cast<FunctionContext *>(fp_ptr)},
+                                                        obj_ptr{obj_ptr} {}
 
         inline explicit operator bool() const noexcept {
             return fp_ptr && obj_ptr;
         }
 
         template<typename Callable, typename... CArgs>
-        inline void construct_callable(CArgs &&... args) const noexcept {
-            new(fp_ptr) FunctionContext{Type<Callable>{}, getObjOffset(),
-                                        static_cast<uint16_t>(getObjOffset() + sizeof(Callable))};
-            new(obj_ptr) Callable{std::forward<CArgs>(args)...};
+        inline void construct_callable(CArgs &&...args) const noexcept {
+            new (fp_ptr) FunctionContext{Type<Callable>{}, getObjOffset(),
+                                         static_cast<uint16_t>(getObjOffset() + sizeof(Callable))};
+            new (obj_ptr) Callable{std::forward<CArgs>(args)...};
         }
 
     private:
@@ -88,8 +85,8 @@ private:
     };
 
 public:
-    FunctionQueue_SCSP(void *memory, std::size_t size) noexcept: m_Buffer{static_cast<std::byte *>(memory)},
-                                                                 m_BufferSize{static_cast<uint32_t>(size)} {
+    FunctionQueue_SCSP(void *memory, std::size_t size) noexcept : m_Buffer{static_cast<std::byte *>(memory)},
+                                                                  m_BufferSize{static_cast<uint32_t>(size)} {
         if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order_relaxed);
         if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
     }
@@ -121,18 +118,20 @@ public:
             if (!m_Remaining.load(std::memory_order_acquire)) {
                 m_ReadFlag.clear(std::memory_order_relaxed);
                 return false;
-            } else return true;
-        } else return m_Remaining.load(std::memory_order_acquire);
+            } else
+                return true;
+        } else
+            return m_Remaining.load(std::memory_order_acquire);
     }
 
-    inline R call_and_pop(Args...args) noexcept {
+    inline R call_and_pop(Args... args) noexcept {
         auto const output_offset = m_OutPutOffset.load(std::memory_order_relaxed);
         bool const found_sentinel = output_offset == m_SentinelRead.load(std::memory_order_relaxed);
         if (found_sentinel) m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
 
         auto functionCxtPtr = align<FunctionContext>(m_Buffer + (found_sentinel ? 0 : output_offset));
 
-        auto const[invokeAndDestroyFP, objPtr, nextAddr] = functionCxtPtr->getReadData();
+        auto const [invokeAndDestroyFP, objPtr, nextAddr] = functionCxtPtr->getReadData();
 
         auto decr_rem_incr_output_offset = [&, nextOffset{nextAddr - m_Buffer}] {
             m_Remaining.fetch_sub(1, std::memory_order_relaxed);
@@ -180,7 +179,7 @@ public:
         return true;
     }
 
-    template<typename Callable, typename ...CArgs>
+    template<typename Callable, typename... CArgs>
     inline bool emplace_back(CArgs &&...args) noexcept {
         if constexpr (isWriteProtected) {
             if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return false;
@@ -206,7 +205,6 @@ public:
     }
 
 private:
-
     template<typename T>
     static constexpr inline T *align(void *ptr) noexcept {
         return std::bit_cast<T *>((std::bit_cast<uintptr_t>(ptr) - 1u + alignof(T)) & -alignof(T));
@@ -230,9 +228,8 @@ private:
         std::destroy_at(static_cast<Callable *>(data));
     }
 
-    template<typename =void>
-    requires(destroyNonInvoked)
-    void destroyAllFO() {
+    template<typename = void>
+    requires(destroyNonInvoked) void destroyAllFO() {
         auto remaining = m_Remaining.exchange(0, std::memory_order_acquire);
 
         if (!remaining) return;
@@ -277,7 +274,7 @@ private:
         auto const search_ahead = (input_offset > output_offset) || (input_offset == output_offset && !remaining);
 
         if (size_t const buffer_size = m_BufferSize - input_offset;
-                search_ahead && buffer_size) {
+            search_ahead && buffer_size) {
             if (auto storage = getAlignedStorage(m_Buffer + input_offset, buffer_size)) {
                 incr_input_offset(storage);
                 return storage;
@@ -325,4 +322,4 @@ private:
 };
 
 
-#endif //FUNCTIONQUEUE_SCSP
+#endif//FUNCTIONQUEUE_SCSP

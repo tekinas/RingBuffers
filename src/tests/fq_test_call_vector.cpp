@@ -1,8 +1,8 @@
 #include "../FunctionQueue.h"
-#include "../FunctionQueue_SCSP.h"
 #include "../FunctionQueue_MCSP.h"
-#include "util.h"
+#include "../FunctionQueue_SCSP.h"
 #include "ComputeCallbackGenerator.h"
+#include "util.h"
 
 #include <chrono>
 #include <folly/Function.h>
@@ -109,7 +109,7 @@ void test(std::vector<Function<ComputeFunctionSig>> &vectorComputeQueue) noexcep
     {
         Timer timer{"std::vector of functions"};
 
-        for (auto &&function :  vectorComputeQueue) {
+        for (auto &&function : vectorComputeQueue) {
             num = function(num);
         }
     }
@@ -122,7 +122,7 @@ void test(std::vector<std::function<ComputeFunctionSig>> &vectorStdComputeQueue)
     {
         Timer timer{"std::vector of std functions"};
 
-        for (auto &&function :  vectorStdComputeQueue) {
+        for (auto &&function : vectorStdComputeQueue) {
             num = function(num);
         }
     }

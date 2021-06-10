@@ -2,8 +2,8 @@
 #include "../BufferQueue_SCSP.h"
 #include "util.h"
 
-#include <thread>
 #include <cstring>
+#include <thread>
 
 using namespace util;
 
@@ -62,25 +62,3 @@ int main(int argc, char **argv) {
     benchmark_throughput_fixed_size("buffer queue SCSP", bufferQueueScsp, chunk_size, fix_count);
     benchmark_throughput_fixed_size("buffer queue MCSP", bufferQueueMcsp, chunk_size, fix_count);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

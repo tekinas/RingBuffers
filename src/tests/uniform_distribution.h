@@ -29,9 +29,9 @@
  */
 
 
-#include <type_traits>
 #include <cassert>
 #include <random>
+#include <type_traits>
 
 namespace util {
     namespace detail {
@@ -43,7 +43,7 @@ namespace util {
         powerOf2(Tp x) {
             return ((x - 1) & x) == 0;
         }
-    }
+    }// namespace detail
 
     /**
      * @brief Uniform discrete distribution for random numbers.
@@ -65,10 +65,9 @@ namespace util {
 
             param_type() : param_type(0) {}
 
-            explicit
-            param_type(IntType a,
-                       IntType b = std::numeric_limits<IntType>::max())
-                    : M_a(a), M_b(b) {
+            explicit param_type(IntType a,
+                                IntType b = std::numeric_limits<IntType>::max())
+                : M_a(a), M_b(b) {
                 assert(M_a <= M_b);
             }
 
@@ -100,15 +99,12 @@ namespace util {
         /**
          * @brief Constructs a uniform distribution object.
          */
-        explicit
-        uniform_int_distribution(IntType a,
-                                 IntType b
-                                 = std::numeric_limits<IntType>::max())
-                : M_param(a, b) {}
+        explicit uniform_int_distribution(IntType a,
+                                          IntType b = std::numeric_limits<IntType>::max())
+            : M_param(a, b) {}
 
-        explicit
-        uniform_int_distribution(const param_type &p)
-                : M_param(p) {}
+        explicit uniform_int_distribution(const param_type &p)
+            : M_param(p) {}
 
         /**
          * @brief Resets the distribution state.
@@ -162,13 +158,13 @@ namespace util {
                    const param_type &p);
 
         template<typename ForwardIterator,
-                typename UniformRandomBitGenerator>
+                 typename UniformRandomBitGenerator>
         void
         generate(ForwardIterator f, ForwardIterator t,
                  UniformRandomBitGenerator &urng) { this->generate(f, t, urng, M_param); }
 
         template<typename ForwardIterator,
-                typename UniformRandomBitGenerator>
+                 typename UniformRandomBitGenerator>
         void
         generate(ForwardIterator f, ForwardIterator t,
                  UniformRandomBitGenerator &urng,
@@ -190,7 +186,7 @@ namespace util {
 
     private:
         template<typename ForwardIterator,
-                typename UniformRandomBitGenerator>
+                 typename UniformRandomBitGenerator>
         void
         generate_impl(ForwardIterator f, ForwardIterator t,
                       UniformRandomBitGenerator &urng,
@@ -241,14 +237,13 @@ namespace util {
                       "Uniform random bit generator must define min() < max()");
         constexpr uctype urngrange = urngmax - urngmin;
 
-        const uctype urange
-                = uctype(param.b()) - uctype(param.a());
+        const uctype urange = uctype(param.b()) - uctype(param.a());
 
         uctype ret;
         if (urngrange > urange) {
             // downscaling
 
-            const uctype uerange = urange + 1; // urange can be zero
+            const uctype uerange = urange + 1;// urange can be zero
 
 #if defined UINT64_TYPE && defined UINT32_TYPE
 #if SIZEOF_INT128
@@ -259,7 +254,7 @@ namespace util {
                 ret = _S_nd<unsigned int128>(urng, u64erange);
             } else
 #endif
-            if _GLIBCXX17_CONSTEXPR (urngrange == UINT32_MAX) {
+                    if _GLIBCXX17_CONSTEXPR (urngrange == UINT32_MAX) {
                 // urng produces values that use exactly 32-bits,
                 // so use 64-bit integers to downscale to desired range.
                 UINT32_TYPE u32erange = uerange;
@@ -291,11 +286,10 @@ namespace util {
     
               low in [0, urngrange].
             */
-            uctype tmp; // wraparound control
+            uctype tmp;// wraparound control
             do {
                 const uctype uerngrange = urngrange + 1;
-                tmp = (uerngrange * operator()
-                        (urng, param_type(0, urange / uerngrange)));
+                tmp = (uerngrange * operator()(urng, param_type(0, urange / uerngrange)));
                 ret = tmp + (uctype(urng()) - urngmin);
             } while (ret > urange || ret < tmp);
         } else
@@ -307,12 +301,12 @@ namespace util {
 
     template<typename IntType>
     template<typename ForwardIterator,
-            typename UniformRandomBitGenerator>
+             typename UniformRandomBitGenerator>
     void
     uniform_int_distribution<IntType>::
-    generate_impl(ForwardIterator f, ForwardIterator t,
-                  UniformRandomBitGenerator &urng,
-                  const param_type &param) {
+            generate_impl(ForwardIterator f, ForwardIterator t,
+                          UniformRandomBitGenerator &urng,
+                          const param_type &param) {
         typedef typename UniformRandomBitGenerator::result_type Gresult_type;
         typedef typename std::make_unsigned<result_type>::type utype;
         typedef typename std::common_type<Gresult_type, utype>::type uctype;
@@ -323,21 +317,19 @@ namespace util {
         constexpr uctype urngmin = urng.min();
         constexpr uctype urngmax = urng.max();
         constexpr uctype urngrange = urngmax - urngmin;
-        const uctype urange
-                = uctype(param.b()) - uctype(param.a());
+        const uctype urange = uctype(param.b()) - uctype(param.a());
 
         uctype ret;
 
         if (urngrange > urange) {
-            if (detail::powerOf2(urngrange + 1)
-                && detail::powerOf2(urange + 1)) {
+            if (detail::powerOf2(urngrange + 1) && detail::powerOf2(urange + 1)) {
                 while (f != t) {
                     ret = uctype(urng()) - urngmin;
                     *f++ = (ret & urange) + param.a();
                 }
             } else {
                 // downscaling
-                const uctype uerange = urange + 1; // urange can be zero
+                const uctype uerange = urange + 1;// urange can be zero
                 const uctype scaling = urngrange / uerange;
                 const uctype past = uerange * scaling;
                 while (f != t) {
@@ -363,12 +355,11 @@ namespace util {
     
               low in [0, urngrange].
             */
-            uctype tmp; // wraparound control
+            uctype tmp;// wraparound control
             while (f != t) {
                 do {
                     constexpr uctype uerngrange = urngrange + 1;
-                    tmp = (uerngrange * operator()
-                            (urng, param_type(0, urange / uerngrange)));
+                    tmp = (uerngrange * operator()(urng, param_type(0, urange / uerngrange)));
                     ret = tmp + (uctype(urng()) - urngmin);
                 } while (ret > urange || ret < tmp);
                 *f++ = ret;
@@ -377,7 +368,7 @@ namespace util {
             while (f != t)
                 *f++ = uctype(urng()) - urngmin + param.a();
     }
-}
+}// namespace util
 
 
 namespace util {
@@ -396,9 +387,8 @@ namespace util {
 
             param_type() : param_type(0) {}
 
-            explicit
-            param_type(realType a, realType b = realType(1))
-                    : mA(a), mB(b) {
+            explicit param_type(realType a, realType b = realType(1))
+                : mA(a), mB(b) {
             }
 
             result_type
@@ -434,13 +424,11 @@ namespace util {
          * @param a [IN]  The lower bound of the distribution.
          * @param b [IN]  The upper bound of the distribution.
          */
-        explicit
-        uniform_real_distribution(realType a, realType b = realType(1))
-                : mParam(a, b) {}
+        explicit uniform_real_distribution(realType a, realType b = realType(1))
+            : mParam(a, b) {}
 
-        explicit
-        uniform_real_distribution(const param_type &p)
-                : mParam(p) {}
+        explicit uniform_real_distribution(const param_type &p)
+            : mParam(p) {}
 
         /**
          * @brief Resets the distribution state.
@@ -497,13 +485,13 @@ namespace util {
         }
 
         template<typename ForwardIterator,
-                typename UniformRandomNumberGenerator>
+                 typename UniformRandomNumberGenerator>
         void
         generate(ForwardIterator _f, ForwardIterator _t,
                  UniformRandomNumberGenerator &urng) { this->generate(_f, _t, urng, mParam); }
 
         template<typename _ForwardIterator,
-                typename _UniformRandomNumberGenerator>
+                 typename _UniformRandomNumberGenerator>
         void
         generate(_ForwardIterator f, _ForwardIterator t,
                  _UniformRandomNumberGenerator &urng,
@@ -525,7 +513,7 @@ namespace util {
 
     private:
         template<typename ForwardIterator,
-                typename UniformRandomNumberGenerator>
+                 typename UniformRandomNumberGenerator>
         void
         generateImpl(ForwardIterator f, ForwardIterator t,
                      UniformRandomNumberGenerator &urng,
@@ -542,4 +530,4 @@ namespace util {
     inline bool
     operator!=(const uniform_real_distribution<IntType> &d1,
                const uniform_real_distribution<IntType> &d2) { return !(d1 == d2); }
-}
+}// namespace util

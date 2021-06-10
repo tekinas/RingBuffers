@@ -42,9 +42,9 @@ void test(boost_queue &objectQueue, uint32_t objects,
                 std::this_thread::yield();
 
             /*objectQueue.consume_one([&](Obj const &obj) {
-                obj.hash(seed);
-            });
-            --obj;*/
+			  obj.hash(seed);
+			  });
+			  --obj;*/
 
             obj -= objectQueue.consume_all([&](Obj const &obj) { obj.hash(seed); });
         }
@@ -64,8 +64,7 @@ void test(boost_queue &objectQueue, uint32_t objects,
     }};
 }
 
-void test(ObjectQueue &objectQueue, uint32_t objects,
-          std::size_t seed) noexcept {
+void test(ObjectQueue &objectQueue, uint32_t objects, std::size_t seed) noexcept {
     std::jthread reader{[&objectQueue, objects] {
         Timer timer{"ObjectQueue read time "};
 
@@ -76,12 +75,12 @@ void test(ObjectQueue &objectQueue, uint32_t objects,
                 std::this_thread::yield();
 
             /*objectQueue.consume([&](Obj const &obj) {
-                obj.hash(seed);
-            });
-            --obj;*/
+			  obj.hash(seed);
+			  });
+			  --obj;*/
 
             /*objectQueue.consume().get()->hash(seed);
-            --obj;*/
+			  --obj;*/
 
             obj -= objectQueue.consume_all([&](Obj const &obj) { obj.hash(seed); });
         }
@@ -93,19 +92,32 @@ void test(ObjectQueue &objectQueue, uint32_t objects,
         Random<> rng{seed};
 
         auto obj = objects;
-        while (obj--) {
+        while (obj) {
             /*Obj o{rng};
-            while (!objectQueue.push_back(o)) std::this_thread::yield();*/
+			  while (!objectQueue.push_back(o)) std::this_thread::yield();
+             --obj;
+             */
 
-            while (!objectQueue.emplace_back(rng))
+            /*while (!objectQueue.emplace_back(rng))
                 std::this_thread::yield();
+            --obj;*/
+
+            uint32_t emplaced;
+            while (!(emplaced = objectQueue.emplace_back_n([&, obj](Obj *obj_ptr, uint32_t count) {
+                auto const to_construct = std::min(obj, count);
+                for (uint32_t i = 0; i != to_construct; ++i) {
+                    std::construct_at(obj_ptr + i, rng);
+                }
+                return to_construct;
+            }))) std::this_thread::yield();
+            obj -= emplaced;
         }
     }};
 }
 
 int main() {
     constexpr uint32_t object_count = 10'0000;
-    constexpr uint32_t objects = 1'000'000'000;
+    constexpr uint32_t objects = 100'000'000;
     constexpr std::size_t seed = 121212121;
 
     auto buffer =

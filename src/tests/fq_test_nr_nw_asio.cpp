@@ -31,11 +31,12 @@ public:
                 [computeCxt{std::move(computeCxt)}, functionQueue]<typename T>(T &&t) mutable {
                     auto compute = [computeCxt{std::move(computeCxt)}, t{std::forward<T>(t)}, functionQueue]() mutable {
                         computeCxt->num = t(computeCxt->num);
-//                        std::cout << computeCxt->num << '\n';
+                        //                        std::cout << computeCxt->num << '\n';
 
                         if (++computeCxt->func != computeCxt->num_functions)
                             ComputeCxt::addComputeTask(std::move(computeCxt), functionQueue);
-                        else println("result :", computeCxt->num);
+                        else
+                            println("result :", computeCxt->num);
                     };
 
                     boost::asio::post(*functionQueue, std::move(compute));

@@ -1,7 +1,7 @@
-#include "../FunctionQueue_SCSP.h"
 #include "../FunctionQueue_MCSP.h"
-#include "util.h"
+#include "../FunctionQueue_SCSP.h"
 #include "ComputeCallbackGenerator.h"
+#include "util.h"
 
 #include <thread>
 
@@ -30,11 +30,12 @@ public:
                 [computeCxt{std::move(computeCxt)}, functionQueue]<typename T>(T &&t) mutable {
                     auto compute = [computeCxt{std::move(computeCxt)}, t{std::forward<T>(t)}, functionQueue]() mutable {
                         computeCxt->num = t(computeCxt->num);
-//                        std::cout << computeCxt->num << '\n';
+                        //                        std::cout << computeCxt->num << '\n';
 
                         if (++computeCxt->func != computeCxt->num_functions)
                             ComputeCxt::addComputeTask(std::move(computeCxt), functionQueue);
-                        else println("result :", computeCxt->num);
+                        else
+                            println("result :", computeCxt->num);
                     };
 
                     while (!functionQueue->push_back(std::move(compute))) {

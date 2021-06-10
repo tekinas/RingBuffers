@@ -1,7 +1,7 @@
-#include "../FunctionQueue_SCSP.h"
 #include "../FunctionQueue_MCSP.h"
-#include "util.h"
+#include "../FunctionQueue_SCSP.h"
 #include "ComputeCallbackGenerator.h"
+#include "util.h"
 
 #include <thread>
 
@@ -51,7 +51,8 @@ int main(int argc, char **argv) {
                     while (!rawComputeQueue.reserve()) std::this_thread::yield();
                     auto const res = rawComputeQueue.call_and_pop(seed);
                     if (res == std::numeric_limits<size_t>::max()) break;
-                    else res_vec.push_back(res);
+                    else
+                        res_vec.push_back(res);
                 }
             }
 
@@ -78,7 +79,8 @@ int main(int argc, char **argv) {
         }
 
         for (auto t = num_threads; t--;)
-            while (!rawComputeQueue.push_back([](auto) { return std::numeric_limits<size_t>::max(); }));
+            while (!rawComputeQueue.push_back([](auto) { return std::numeric_limits<size_t>::max(); }))
+                ;
     }();
 
     reader_threads.clear();

@@ -2,17 +2,16 @@
 #define FUNCTIONQUEUE_BUFFERQUEUE_SCSP_H
 
 #include <atomic>
-#include <limits>
-#include <cstdint>
-#include <cstddef>
-#include <memory>
 #include <bit>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <memory>
 
 template<bool isReadProtected, bool isWriteProtected, size_t buffer_align = sizeof(std::max_align_t)>
 class BufferQueue_SCSP {
 
 private:
-
     class Storage;
 
     struct DataContext {
@@ -22,14 +21,13 @@ private:
 
         friend class Storage;
 
-        DataContext(uint32_t buffer_size, uint32_t stride) noexcept:
-                buffer_size{buffer_size}, stride{stride} {}
+        DataContext(uint32_t buffer_size, uint32_t stride) noexcept : buffer_size{buffer_size}, stride{stride} {}
 
-        explicit DataContext(uint32_t buffer_size) noexcept: buffer_size{buffer_size},
-                                                             stride{static_cast<uint32_t>(
-                                                                            align<std::byte, buffer_align>(this + 1) -
-                                                                            std::bit_cast<std::byte *>(this) +
-                                                                            buffer_size)} {}
+        explicit DataContext(uint32_t buffer_size) noexcept : buffer_size{buffer_size},
+                                                              stride{static_cast<uint32_t>(
+                                                                      align<std::byte, buffer_align>(this + 1) -
+                                                                      std::bit_cast<std::byte *>(this) +
+                                                                      buffer_size)} {}
 
     public:
         inline std::pair<std::byte *, uint32_t> getBuffer() noexcept {
@@ -46,42 +44,40 @@ private:
 
         Storage() noexcept = default;
 
-        Storage(void *dc_ptr, void *buffer, uint32_t avl_size) noexcept: dc_ptr{static_cast<DataContext *>(dc_ptr)},
-                                                                         buffer{static_cast<std::byte *>(buffer)},
-                                                                         avl_size{avl_size} {}
+        Storage(void *dc_ptr, void *buffer, uint32_t avl_size) noexcept : dc_ptr{static_cast<DataContext *>(dc_ptr)},
+                                                                          buffer{static_cast<std::byte *>(buffer)},
+                                                                          avl_size{avl_size} {}
 
         inline explicit operator bool() const noexcept {
             return dc_ptr && buffer;
         }
 
         [[nodiscard]] inline auto createContext(uint32_t buffer_size) const noexcept {
-            new(dc_ptr) DataContext{buffer_size, static_cast<uint32_t>(buffer - std::bit_cast<std::byte *>(dc_ptr) +
-                                                                       buffer_size)};
+            new (dc_ptr) DataContext{buffer_size, static_cast<uint32_t>(buffer - std::bit_cast<std::byte *>(dc_ptr) +
+                                                                        buffer_size)};
             return dc_ptr;
         }
 
         inline static auto createContext(void *addr, uint32_t buffer_size) noexcept {
-            new(addr) DataContext{buffer_size};
+            new (addr) DataContext{buffer_size};
             return static_cast<DataContext *>(addr);
         }
     };
 
     class Null {
     public:
-        template<typename ...T>
+        template<typename... T>
         explicit Null(T &&...) noexcept {}
     };
 
 public:
-
     class Buffer {
     public:
-
         [[nodiscard]] inline std::pair<std::byte *, uint32_t> get() const noexcept {
             return getDataContext()->getBuffer();
         }
 
-        Buffer(Buffer &&other) noexcept: buffer_queue{std::exchange(other.buffer_queue, nullptr)} {}
+        Buffer(Buffer &&other) noexcept : buffer_queue{std::exchange(other.buffer_queue, nullptr)} {}
 
         Buffer(Buffer const &) = delete;
 
@@ -106,7 +102,7 @@ public:
     private:
         friend class BufferQueue_SCSP;
 
-        explicit Buffer(BufferQueue_SCSP const *buffer_queue) noexcept: buffer_queue{buffer_queue} {}
+        explicit Buffer(BufferQueue_SCSP const *buffer_queue) noexcept : buffer_queue{buffer_queue} {}
 
         auto getDataContext() const noexcept {
             return std::bit_cast<DataContext *>(
@@ -117,8 +113,8 @@ public:
     };
 
 public:
-    BufferQueue_SCSP(void *memory, std::size_t size) noexcept: m_Buffer{static_cast<std::byte *const>(memory)},
-                                                               m_BufferSize{static_cast<uint32_t>(size)} {
+    BufferQueue_SCSP(void *memory, std::size_t size) noexcept : m_Buffer{static_cast<std::byte *const>(memory)},
+                                                                m_BufferSize{static_cast<uint32_t>(size)} {
         if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order_relaxed);
         if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
     }
@@ -144,8 +140,10 @@ public:
             if (!m_Remaining.load(std::memory_order_acquire)) {
                 m_ReadFlag.clear(std::memory_order_relaxed);
                 return false;
-            } else return true;
-        } else return m_Remaining.load(std::memory_order_acquire);
+            } else
+                return true;
+        } else
+            return m_Remaining.load(std::memory_order_acquire);
     }
 
     template<typename F>
@@ -155,7 +153,7 @@ public:
         if (found_sentinel) m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
 
         auto const data_cxt = align<DataContext>(m_Buffer + (found_sentinel ? 0 : output_offset));
-        auto const[buffer_data, buffer_size] = data_cxt->getBuffer();
+        auto const [buffer_data, buffer_size] = data_cxt->getBuffer();
 
         auto decr_rem_incr_output_offset = [&, nextOffset{data_cxt->getNextAddr() - m_Buffer}] {
             m_Remaining.fetch_sub(1, std::memory_order_relaxed);
@@ -259,11 +257,11 @@ public:
                             getUsableSpace(m_Buffer, output_offset));
         } else if (input_offset < output_offset) {
             return getUsableSpace(m_Buffer + input_offset, output_offset - input_offset);
-        } else return 0;
+        } else
+            return 0;
     }
 
 private:
-
     template<typename T, size_t _align = alignof(T)>
     static constexpr inline T *align(void *ptr) noexcept {
         return std::bit_cast<T *>((std::bit_cast<uintptr_t>(ptr) - 1u + _align) & -_align);
@@ -285,7 +283,7 @@ private:
         auto const search_ahead = (input_offset > output_offset) || (input_offset == output_offset && !remaining);
 
         if (size_t const buffer_size = m_BufferSize - input_offset;
-                search_ahead && buffer_size) {
+            search_ahead && buffer_size) {
             if (auto storage = getAlignedStorage(m_Buffer + input_offset, buffer_size)) {
                 return storage;
             }
@@ -315,11 +313,11 @@ private:
     mutable std::atomic<uint32_t> m_SentinelRead{NO_SENTINEL};
     mutable std::atomic<uint32_t> m_Remaining{0};
 
-    [[no_unique_address]]  std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag;
+    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag;
     [[no_unique_address]] mutable std::conditional_t<isReadProtected, std::atomic_flag, Null> m_ReadFlag;
 
     uint32_t const m_BufferSize;
     std::byte *const m_Buffer;
 };
 
-#endif //FUNCTIONQUEUE_BUFFERQUEUE_SCSP_H
+#endif//FUNCTIONQUEUE_BUFFERQUEUE_SCSP_H

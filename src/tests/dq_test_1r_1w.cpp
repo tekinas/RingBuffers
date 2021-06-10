@@ -1,9 +1,9 @@
-#include "../BufferQueue_SCSP.h"
 #include "../BufferQueue_MCSP.h"
+#include "../BufferQueue_SCSP.h"
 #include "util.h"
-#include <thread>
 #include <boost/container_hash/hash.hpp>
 #include <span>
+#include <thread>
 
 using namespace util;
 
@@ -37,8 +37,7 @@ int main(int argc, char **argv) {
     test_buffer_queue(bufferQueue, rng, buffers);
 }
 
-void
-test_buffer_queue(BufferQueue &buffer_queue, RNG &rng, size_t functions) noexcept {
+void test_buffer_queue(BufferQueue &buffer_queue, RNG &rng, size_t functions) noexcept {
     StartFlag start_flag;
 
     std::jthread reader{[&, functions]() mutable {
@@ -90,7 +89,7 @@ test_buffer_queue(BufferQueue &buffer_queue, RNG &rng, size_t functions) noexcep
             }*/
 
 
-//            if (auto space = buffer_queue.available_space(); space >= min_buffer_size)
+            //            if (auto space = buffer_queue.available_space(); space >= min_buffer_size)
             buffer_queue.allocate_and_release(min_buffer_size,
                                               [&, min_buffer_size](auto buffer, auto avl_size) mutable {
                                                   auto const fill_bytes{

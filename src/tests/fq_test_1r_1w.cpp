@@ -1,7 +1,7 @@
-#include "../FunctionQueue_SCSP.h"
 #include "../FunctionQueue_MCSP.h"
-#include "util.h"
+#include "../FunctionQueue_SCSP.h"
 #include "ComputeCallbackGenerator.h"
+#include "util.h"
 
 #include <thread>
 
@@ -11,9 +11,8 @@ using ComputeFunctionSig = size_t(size_t);
 //using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
 using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
 
-void
-test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator &callbackGenerator,
-                   size_t functions) noexcept;
+void test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator &callbackGenerator,
+                        size_t functions) noexcept;
 
 int main(int argc, char **argv) {
     if (argc == 1) {
@@ -39,9 +38,8 @@ int main(int argc, char **argv) {
     test_lockFreeQueue(rawComputeQueue, callbackGenerator, functions);
 }
 
-void
-test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator &callbackGenerator,
-                   size_t functions) noexcept {
+void test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator &callbackGenerator,
+                        size_t functions) noexcept {
     StartFlag start_flag;
 
     std::jthread reader{[&] {
@@ -53,7 +51,7 @@ test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator &cal
                 num = res;
                 if (rawComputeQueue.reserve()) {
                     res = rawComputeQueue.call_and_pop(res);
-//                    println(res);
+                    //                    println(res);
                 } else {
                     std::this_thread::yield();
                 }
@@ -75,7 +73,8 @@ test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator &cal
                     });
         }
 
-        while (!rawComputeQueue.push_back([](auto) { return std::numeric_limits<size_t>::max(); }));
+        while (!rawComputeQueue.push_back([](auto) { return std::numeric_limits<size_t>::max(); }))
+            ;
     }};
 
     start_flag.start();

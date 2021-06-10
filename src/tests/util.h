@@ -3,29 +3,29 @@
 
 #include "uniform_distribution.h"
 
+#include <condition_variable>
 #include <iostream>
+#include <memory_resource>
 #include <mutex>
 #include <random>
-#include <memory_resource>
-#include <condition_variable>
 
 namespace util {
 
     inline std::mutex _cout_mutex;
 
-    template<typename...T>
+    template<typename... T>
     void print(T &&...t) {
         std::scoped_lock _cout_lock{_cout_mutex};
         (std::cout << ... << std::forward<T>(t));
     }
 
-    template<typename...T>
+    template<typename... T>
     void println(T &&...t) {
         print(std::forward<T>(t)..., '\n');
     }
 
     template<typename... Types>
-    void print_error(Types &&... args) {
+    void print_error(Types &&...args) {
         std::cerr << "ERROR :";
         (std::cerr << ... << std::forward<Types>(args)) << std::endl;
         std::exit(EXIT_FAILURE);
@@ -69,7 +69,7 @@ namespace util {
         Random() : rng{std::random_device{}()} {}
 
         template<typename T>
-        Random(T t): rng{t} {
+        Random(T t) : rng{t} {
             static_assert(std::is_integral_v<T>);
         }
 
@@ -142,10 +142,11 @@ namespace util {
     class pmr_deleter {
     private:
         std::pmr::memory_resource *memoryResource;
-    public:
-        pmr_deleter() noexcept: memoryResource{nullptr} {}
 
-        /*explicit*/ pmr_deleter(std::pmr::memory_resource *memoryResource) noexcept: memoryResource{memoryResource} {}
+    public:
+        pmr_deleter() noexcept : memoryResource{nullptr} {}
+
+        /*explicit*/ pmr_deleter(std::pmr::memory_resource *memoryResource) noexcept : memoryResource{memoryResource} {}
 
         void operator()(T *const ptr) const noexcept {
             ptr->~T();
@@ -158,11 +159,13 @@ namespace util {
     private:
         std::pmr::memory_resource *memoryResource;
         size_t size;
-    public:
-        pmr_deleter() noexcept: memoryResource{nullptr}, size{0} {}
 
-        pmr_deleter(std::pmr::memory_resource *memoryResource, size_t size) noexcept: memoryResource{
-                memoryResource}, size{size} {}
+    public:
+        pmr_deleter() noexcept : memoryResource{nullptr}, size{0} {}
+
+        pmr_deleter(std::pmr::memory_resource *memoryResource, size_t size) noexcept : memoryResource{
+                                                                                               memoryResource},
+                                                                                       size{size} {}
 
         [[nodiscard]] size_t getSize() const noexcept { return size; }
 
@@ -177,7 +180,7 @@ namespace util {
 
     struct ConditionFlag {
     public:
-        explicit ConditionFlag(bool condition) noexcept: condition(condition) {}
+        explicit ConditionFlag(bool condition) noexcept : condition(condition) {}
 
         void wait(bool con) noexcept {
             std::unique_lock lock{mutex};
@@ -235,7 +238,7 @@ namespace util {
     template<typename IntType>
     struct ReferenceCount {
     public:
-        explicit ReferenceCount(IntType count) noexcept: count{count} {}
+        explicit ReferenceCount(IntType count) noexcept : count{count} {}
 
         void wait(IntType _count) noexcept {
             std::unique_lock lock{mutex};
@@ -284,7 +287,7 @@ namespace util {
         IntType count;
     };
 
-}  // namespace util
+}// namespace util
 
 namespace std::pmr {
     template<typename T>
@@ -310,7 +313,7 @@ namespace util {
 
     template<typename T, typename... ArgTypes>
     inline typename UniquePointerType<T>::single_object
-    make_unique(std::pmr::memory_resource *memoryResource, ArgTypes &&... args) noexcept {
+    make_unique(std::pmr::memory_resource *memoryResource, ArgTypes &&...args) noexcept {
         std::pmr::polymorphic_allocator<T> alloc{memoryResource};
         auto ptr = alloc.allocate(1);
         alloc.construct(ptr, std::forward<ArgTypes>(args)...);
@@ -336,7 +339,7 @@ namespace util {
     template<typename T>
     inline typename UniquePointerType<T>::invalid_type
     make_unique(std::pmr::memory_resource *memoryResource, size_t size) = delete;
-}
+}// namespace util
 
 namespace util {
     class Timer {
@@ -344,11 +347,13 @@ namespace util {
         using clock = std::chrono::steady_clock;
         using time_point = clock::time_point;
         using print_duartion = std::chrono::duration<double>;
+
     private:
         std::string name;
         time_point start;
+
     public:
-        explicit Timer(std::string_view str) noexcept: name{str} {
+        explicit Timer(std::string_view str) noexcept : name{str} {
             start = clock::now();
         }
 
@@ -360,7 +365,8 @@ namespace util {
     class StartFlag {
     public:
         void wait() const noexcept {
-            while (!m_StartFlag.load(std::memory_order_relaxed));
+            while (!m_StartFlag.load(std::memory_order_relaxed))
+                ;
         }
 
         void start() noexcept {
@@ -370,6 +376,6 @@ namespace util {
     private:
         std::atomic<bool> m_StartFlag{false};
     };
-}
+}// namespace util
 
-#endif  // CPP_TEST_UTIL_H
+#endif// CPP_TEST_UTIL_H

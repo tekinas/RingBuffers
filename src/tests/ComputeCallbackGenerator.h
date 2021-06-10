@@ -1,7 +1,3 @@
-//
-// Created by tekinas on 1/5/21.
-//
-
 #ifndef FUNCTIONQUEUE_COMPUTECALLBACKGENERATOR_H
 #define FUNCTIONQUEUE_COMPUTECALLBACKGENERATOR_H
 
@@ -30,6 +26,7 @@ template<size_t fields>
 class ComputeFunctor {
 private:
     size_t data[fields];
+
 public:
     explicit ComputeFunctor(Random<std::mt19937_64> &rng) noexcept {
         rng.fillRand<size_t>(0, std::numeric_limits<size_t>::max(), std::begin(data), std::end(data));
@@ -49,6 +46,7 @@ class ComputeFunctor2 {
 private:
     size_t data[fields];
     uint16_t data2[fields];
+
 public:
     explicit ComputeFunctor2(Random<std::mt19937_64> &rng) {
         rng.fillRand<size_t>(0, std::numeric_limits<size_t>::max(), std::begin(data), std::end(data));
@@ -66,6 +64,7 @@ public:
 
 class CallbackGenerator {
     Random<std::mt19937_64> random;
+
 public:
     explicit CallbackGenerator(size_t seed) : random{seed} {}
 
@@ -84,8 +83,7 @@ public:
                 push_back([=](size_t num) {
                     return (num ^ a) & (b ^ c);
                 });
-            }
-                break;
+            } break;
             case 1: {
                 auto constexpr max_ = std::numeric_limits<uint32_t>::max();
                 auto a = random.getRand<uint32_t>(0, max_);
@@ -98,8 +96,7 @@ public:
                 push_back([=](size_t num) {
                     return (num ^ a) & (b ^ c) >> (d % 5) ^ e << (f % 3) ^ g;
                 });
-            }
-                break;
+            } break;
             case 2:
                 push_back(compute_1);
                 break;
@@ -111,41 +108,33 @@ public:
                 break;
             case 5: {
                 push_back(ComputeFunctor<10>{random});
-            }
-                break;
+            } break;
             case 6: {
                 push_back(ComputeFunctor2<10>{random});
-            }
-                break;
+            } break;
             case 7: {
                 push_back(ComputeFunctor<7>{random});
-            }
-                break;
+            } break;
             case 8: {
                 push_back(ComputeFunctor2<5>{random});
-            }
-                break;
+            } break;
             case 9: {
                 push_back(ComputeFunctor<2>{random});
-            }
-                break;
+            } break;
             case 10: {
                 push_back(ComputeFunctor<3>{random});
-            }
-                break;
+            } break;
 
             case 11: {
                 push_back([a = random.getRand<uint16_t>(0, std::numeric_limits<uint16_t>::max())](size_t num) {
                     return num ^ a;
                 });
-            }
-                break;
+            } break;
             case 12: {
                 push_back([a = random.getRand<uint16_t>(0, 255)](size_t num) {
                     return num ^ a;
                 });
-            }
-                break;
+            } break;
                 /*case 13:
                     rawComputeQueue.push_back(compute_1);
                     vectorComputeQueue.emplace_back(compute_1);
@@ -155,4 +144,4 @@ public:
     }
 };
 
-#endif //FUNCTIONQUEUE_COMPUTECALLBACKGENERATOR_H
+#endif//FUNCTIONQUEUE_COMPUTECALLBACKGENERATOR_H

@@ -1,8 +1,8 @@
 #include "../FunctionQueue.h"
-#include "../FunctionQueue_SCSP.h"
 #include "../FunctionQueue_MCSP.h"
-#include "util.h"
+#include "../FunctionQueue_SCSP.h"
 #include "ComputeCallbackGenerator.h"
+#include "util.h"
 
 #include <deque>
 #include <folly/Function.h>

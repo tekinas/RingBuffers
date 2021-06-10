@@ -1,7 +1,7 @@
-#include "../FunctionQueue_SCSP.h"
 #include "../FunctionQueue_MCSP.h"
-#include "util.h"
+#include "../FunctionQueue_SCSP.h"
 #include "ComputeCallbackGenerator.h"
+#include "util.h"
 
 #include <thread>
 
@@ -69,7 +69,7 @@ int main(int argc, char **argv) {
 
     std::mutex res_vec_mut;
 
-    { /// reading functions from the queue concurrently ::::
+    {/// reading functions from the queue concurrently ::::
         Timer timer{"data read time :"};
 
         {
