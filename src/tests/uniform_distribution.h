@@ -39,8 +39,7 @@ namespace util {
         // This is true for zero, which is OK because we want powerOf2(n+1)
         // to be true if n==numeric_limits<_Tp>::max() and so n+1 wraps around.
         template<typename Tp>
-        constexpr bool
-        powerOf2(Tp x) {
+        constexpr bool powerOf2(Tp x) {
             return ((x - 1) & x) == 0;
         }
     }// namespace detail
@@ -52,8 +51,7 @@ namespace util {
      */
     template<typename IntType = int>
     class uniform_int_distribution {
-        static_assert(std::is_integral<IntType>::value,
-                      "template argument must be an integral type");
+        static_assert(std::is_integral<IntType>::value, "template argument must be an integral type");
 
     public:
         /** The type of the range of the distribution. */
@@ -65,25 +63,19 @@ namespace util {
 
             param_type() : param_type(0) {}
 
-            explicit param_type(IntType a,
-                                IntType b = std::numeric_limits<IntType>::max())
-                : M_a(a), M_b(b) {
+            explicit param_type(IntType a, IntType b = std::numeric_limits<IntType>::max()) : M_a(a), M_b(b) {
                 assert(M_a <= M_b);
             }
 
-            result_type
-            a() const { return M_a; }
+            result_type a() const { return M_a; }
 
-            result_type
-            b() const { return M_b; }
+            result_type b() const { return M_b; }
 
-            friend bool
-            operator==(const param_type &p1, const param_type &p2) {
+            friend bool operator==(const param_type &p1, const param_type &p2) {
                 return p1.M_a == p2.M_a && p1.M_b == p2.M_b;
             }
 
-            friend bool
-            operator!=(const param_type &p1, const param_type &p2) { return !(p1 == p2); }
+            friend bool operator!=(const param_type &p1, const param_type &p2) { return !(p1 == p2); }
 
         private:
             IntType M_a;
@@ -99,98 +91,79 @@ namespace util {
         /**
          * @brief Constructs a uniform distribution object.
          */
-        explicit uniform_int_distribution(IntType a,
-                                          IntType b = std::numeric_limits<IntType>::max())
-            : M_param(a, b) {}
+        explicit uniform_int_distribution(IntType a, IntType b = std::numeric_limits<IntType>::max()) : M_param(a, b) {}
 
-        explicit uniform_int_distribution(const param_type &p)
-            : M_param(p) {}
+        explicit uniform_int_distribution(const param_type &p) : M_param(p) {}
 
         /**
          * @brief Resets the distribution state.
          *
          * Does nothing for the uniform integer distribution.
          */
-        void
-        reset() {}
+        void reset() {}
 
-        result_type
-        a() const { return M_param.a(); }
+        result_type a() const { return M_param.a(); }
 
-        result_type
-        b() const { return M_param.b(); }
+        result_type b() const { return M_param.b(); }
 
         /**
          * @brief Returns the parameter set of the distribution.
          */
-        param_type
-        param() const { return M_param; }
+        param_type param() const { return M_param; }
 
         /**
          * @brief Sets the parameter set of the distribution.
          * @param param The new parameter set of the distribution.
          */
-        void
-        param(const param_type &param) { M_param = param; }
+        void param(const param_type &param) { M_param = param; }
 
         /**
          * @brief Returns the inclusive lower bound of the distribution range.
          */
-        result_type
-        min() const { return this->a(); }
+        result_type min() const { return this->a(); }
 
         /**
          * @brief Returns the inclusive upper bound of the distribution range.
          */
-        result_type
-        max() const { return this->b(); }
+        result_type max() const { return this->b(); }
 
         /**
          * @brief Generating functions.
          */
         template<typename UniformRandomBitGenerator>
-        result_type
-        operator()(UniformRandomBitGenerator &urng) { return this->operator()(urng, M_param); }
+        result_type operator()(UniformRandomBitGenerator &urng) {
+            return this->operator()(urng, M_param);
+        }
 
         template<typename UniformRandomBitGenerator>
-        result_type
-        operator()(UniformRandomBitGenerator &urng,
-                   const param_type &p);
+        result_type operator()(UniformRandomBitGenerator &urng, const param_type &p);
 
-        template<typename ForwardIterator,
-                 typename UniformRandomBitGenerator>
-        void
-        generate(ForwardIterator f, ForwardIterator t,
-                 UniformRandomBitGenerator &urng) { this->generate(f, t, urng, M_param); }
+        template<typename ForwardIterator, typename UniformRandomBitGenerator>
+        void generate(ForwardIterator f, ForwardIterator t, UniformRandomBitGenerator &urng) {
+            this->generate(f, t, urng, M_param);
+        }
 
-        template<typename ForwardIterator,
-                 typename UniformRandomBitGenerator>
-        void
-        generate(ForwardIterator f, ForwardIterator t,
-                 UniformRandomBitGenerator &urng,
-                 const param_type &p) { this->generate_impl(f, t, urng, p); }
+        template<typename ForwardIterator, typename UniformRandomBitGenerator>
+        void generate(ForwardIterator f, ForwardIterator t, UniformRandomBitGenerator &urng, const param_type &p) {
+            this->generate_impl(f, t, urng, p);
+        }
 
         template<typename UniformRandomBitGenerator>
-        void
-        generate(result_type *f, result_type *t,
-                 UniformRandomBitGenerator &urng,
-                 const param_type &p) { this->generate_impl(f, t, urng, p); }
+        void generate(result_type *f, result_type *t, UniformRandomBitGenerator &urng, const param_type &p) {
+            this->generate_impl(f, t, urng, p);
+        }
 
         /**
          * @brief Return true if two uniform integer distributions have
          *        the same parameters.
          */
-        friend bool
-        operator==(const uniform_int_distribution &d1,
-                   const uniform_int_distribution &d2) { return d1.M_param == d2.M_param; }
+        friend bool operator==(const uniform_int_distribution &d1, const uniform_int_distribution &d2) {
+            return d1.M_param == d2.M_param;
+        }
 
     private:
-        template<typename ForwardIterator,
-                 typename UniformRandomBitGenerator>
-        void
-        generate_impl(ForwardIterator f, ForwardIterator t,
-                      UniformRandomBitGenerator &urng,
-                      const param_type &p);
+        template<typename ForwardIterator, typename UniformRandomBitGenerator>
+        void generate_impl(ForwardIterator f, ForwardIterator t, UniformRandomBitGenerator &urng, const param_type &p);
 
         param_type M_param;
 
@@ -198,8 +171,7 @@ namespace util {
         // Returns an unbiased random number from g downscaled to [0,range)
         // using an unsigned type _Wp twice as wide as unsigned type _Up.
         template<typename Wp, typename Urbg, typename Up>
-        static Up
-        S_nd(Urbg &g, Up range) {
+        static Up S_nd(Urbg &g, Up range) {
             static_assert(!std::is_signed_v<Up>, "U must be unsigned");
             static_assert(!std::is_signed_v<Wp>, "W must be unsigned");
             static_assert(std::numeric_limits<Wp>::digits == (2 * std::numeric_limits<Up>::digits),
@@ -224,17 +196,14 @@ namespace util {
     template<typename IntType>
     template<typename UniformRandomBitGenerator>
     typename uniform_int_distribution<IntType>::result_type
-    uniform_int_distribution<IntType>::
-    operator()(UniformRandomBitGenerator &urng,
-               const param_type &param) {
+    uniform_int_distribution<IntType>::operator()(UniformRandomBitGenerator &urng, const param_type &param) {
         typedef typename UniformRandomBitGenerator::result_type Gresult_type;
         typedef typename std::make_unsigned<result_type>::type utype;
         typedef typename std::common_type<Gresult_type, utype>::type uctype;
 
         constexpr uctype urngmin = UniformRandomBitGenerator::min();
         constexpr uctype urngmax = UniformRandomBitGenerator::max();
-        static_assert(urngmin < urngmax,
-                      "Uniform random bit generator must define min() < max()");
+        static_assert(urngmin < urngmax, "Uniform random bit generator must define min() < max()");
         constexpr uctype urngrange = urngmax - urngmin;
 
         const uctype urange = uctype(param.b()) - uctype(param.a());
@@ -265,8 +234,7 @@ namespace util {
                 // fallback case (2 divisions)
                 const uctype scaling = urngrange / uerange;
                 const uctype past = uerange * scaling;
-                do
-                    ret = uctype(urng()) - urngmin;
+                do ret = uctype(urng()) - urngmin;
                 while (ret >= past);
                 ret /= scaling;
             }
@@ -300,19 +268,14 @@ namespace util {
 
 
     template<typename IntType>
-    template<typename ForwardIterator,
-             typename UniformRandomBitGenerator>
-    void
-    uniform_int_distribution<IntType>::
-            generate_impl(ForwardIterator f, ForwardIterator t,
-                          UniformRandomBitGenerator &urng,
-                          const param_type &param) {
+    template<typename ForwardIterator, typename UniformRandomBitGenerator>
+    void uniform_int_distribution<IntType>::generate_impl(ForwardIterator f, ForwardIterator t,
+                                                          UniformRandomBitGenerator &urng, const param_type &param) {
         typedef typename UniformRandomBitGenerator::result_type Gresult_type;
         typedef typename std::make_unsigned<result_type>::type utype;
         typedef typename std::common_type<Gresult_type, utype>::type uctype;
 
-        static_assert(urng.min() < urng.max(),
-                      "Uniform random bit generator must define min() < max()");
+        static_assert(urng.min() < urng.max(), "Uniform random bit generator must define min() < max()");
 
         constexpr uctype urngmin = urng.min();
         constexpr uctype urngmax = urng.max();
@@ -333,8 +296,7 @@ namespace util {
                 const uctype scaling = urngrange / uerange;
                 const uctype past = uerange * scaling;
                 while (f != t) {
-                    do
-                        ret = uctype(urng()) - urngmin;
+                    do ret = uctype(urng()) - urngmin;
                     while (ret >= past);
                     *f++ = ret / scaling + param.a();
                 }
@@ -365,8 +327,7 @@ namespace util {
                 *f++ = ret;
             }
         } else
-            while (f != t)
-                *f++ = uctype(urng()) - urngmin + param.a();
+            while (f != t) *f++ = uctype(urng()) - urngmin + param.a();
     }
 }// namespace util
 
@@ -374,8 +335,7 @@ namespace util {
 namespace util {
     template<typename realType = double>
     class uniform_real_distribution {
-        static_assert(std::is_floating_point<realType>::value,
-                      "result_type must be a floating point type");
+        static_assert(std::is_floating_point<realType>::value, "result_type must be a floating point type");
 
     public:
         /** The type of the range of the distribution. */
@@ -387,23 +347,17 @@ namespace util {
 
             param_type() : param_type(0) {}
 
-            explicit param_type(realType a, realType b = realType(1))
-                : mA(a), mB(b) {
-            }
+            explicit param_type(realType a, realType b = realType(1)) : mA(a), mB(b) {}
 
-            result_type
-            a() const { return mA; }
+            result_type a() const { return mA; }
 
-            result_type
-            b() const { return mB; }
+            result_type b() const { return mB; }
 
-            friend bool
-            operator==(const param_type &p1, const param_type &p2) {
+            friend bool operator==(const param_type &p1, const param_type &p2) {
                 return p1.mA == p2.mA && p1.mB == p2.mB;
             }
 
-            friend bool
-            operator!=(const param_type &p1, const param_type &p2) { return !(p1 == p2); }
+            friend bool operator!=(const param_type &p1, const param_type &p2) { return !(p1 == p2); }
 
         private:
             realType mA;
@@ -424,100 +378,85 @@ namespace util {
          * @param a [IN]  The lower bound of the distribution.
          * @param b [IN]  The upper bound of the distribution.
          */
-        explicit uniform_real_distribution(realType a, realType b = realType(1))
-            : mParam(a, b) {}
+        explicit uniform_real_distribution(realType a, realType b = realType(1)) : mParam(a, b) {}
 
-        explicit uniform_real_distribution(const param_type &p)
-            : mParam(p) {}
+        explicit uniform_real_distribution(const param_type &p) : mParam(p) {}
 
         /**
          * @brief Resets the distribution state.
          *
          * Does nothing for the uniform real distribution.
          */
-        void
-        reset() {}
+        void reset() {}
 
-        result_type
-        a() const { return mParam.a(); }
+        result_type a() const { return mParam.a(); }
 
-        result_type
-        b() const { return mParam.b(); }
+        result_type b() const { return mParam.b(); }
 
         /**
          * @brief Returns the parameter set of the distribution.
          */
-        param_type
-        param() const { return mParam; }
+        param_type param() const { return mParam; }
 
         /**
          * @brief Sets the parameter set of the distribution.
          * @param param The new parameter set of the distribution.
          */
-        void
-        param(const param_type &param) { mParam = param; }
+        void param(const param_type &param) { mParam = param; }
 
         /**
          * @brief Returns the inclusive lower bound of the distribution range.
          */
-        result_type
-        min() const { return this->a(); }
+        result_type min() const { return this->a(); }
 
         /**
          * @brief Returns the inclusive upper bound of the distribution range.
          */
-        result_type
-        max() const { return this->b(); }
+        result_type max() const { return this->b(); }
 
         /**
          * @brief Generating functions.
          */
         template<typename UniformRandomNumberGenerator>
-        result_type
-        operator()(UniformRandomNumberGenerator &urng) { return this->operator()(urng, mParam); }
+        result_type operator()(UniformRandomNumberGenerator &urng) {
+            return this->operator()(urng, mParam);
+        }
 
         template<typename UniformRandomNumberGenerator>
-        result_type
-        operator()(UniformRandomNumberGenerator &urng, const param_type &p) {
+        result_type operator()(UniformRandomNumberGenerator &urng, const param_type &p) {
             /*detail::_Adaptor<_UniformRandomNumberGenerator, result_type>
                     aurng(urng);*/
             return (/*aurng() **/ (p.b() - p.a())) + p.a();
         }
 
-        template<typename ForwardIterator,
-                 typename UniformRandomNumberGenerator>
-        void
-        generate(ForwardIterator _f, ForwardIterator _t,
-                 UniformRandomNumberGenerator &urng) { this->generate(_f, _t, urng, mParam); }
+        template<typename ForwardIterator, typename UniformRandomNumberGenerator>
+        void generate(ForwardIterator _f, ForwardIterator _t, UniformRandomNumberGenerator &urng) {
+            this->generate(_f, _t, urng, mParam);
+        }
 
-        template<typename _ForwardIterator,
-                 typename _UniformRandomNumberGenerator>
-        void
-        generate(_ForwardIterator f, _ForwardIterator t,
-                 _UniformRandomNumberGenerator &urng,
-                 const param_type &p) { this->generateImpl(f, t, urng, p); }
+        template<typename _ForwardIterator, typename _UniformRandomNumberGenerator>
+        void generate(_ForwardIterator f, _ForwardIterator t, _UniformRandomNumberGenerator &urng,
+                      const param_type &p) {
+            this->generateImpl(f, t, urng, p);
+        }
 
         template<typename _UniformRandomNumberGenerator>
-        void
-        generate(result_type *f, result_type *t,
-                 _UniformRandomNumberGenerator &urng,
-                 const param_type &p) { this->generateImpl(f, t, urng, p); }
+        void generate(result_type *f, result_type *t, _UniformRandomNumberGenerator &urng, const param_type &p) {
+            this->generateImpl(f, t, urng, p);
+        }
 
         /**
          * @brief Return true if two uniform real distributions have
          *        the same parameters.
          */
-        friend bool
-        operator==(const uniform_real_distribution &d1,
-                   const uniform_real_distribution &d2) { return d1.mParam == d2.mParam; }
+        friend bool operator==(const uniform_real_distribution &d1, const uniform_real_distribution &d2) {
+            return d1.mParam == d2.mParam;
+        }
 
     private:
-        template<typename ForwardIterator,
-                 typename UniformRandomNumberGenerator>
-        void
-        generateImpl(ForwardIterator f, ForwardIterator t,
-                     UniformRandomNumberGenerator &urng,
-                     const param_type &p);
+        template<typename ForwardIterator, typename UniformRandomNumberGenerator>
+        void generateImpl(ForwardIterator f, ForwardIterator t, UniformRandomNumberGenerator &urng,
+                          const param_type &p);
 
         param_type mParam;
     };
@@ -527,7 +466,7 @@ namespace util {
      *        different parameters.
      */
     template<typename IntType>
-    inline bool
-    operator!=(const uniform_real_distribution<IntType> &d1,
-               const uniform_real_distribution<IntType> &d2) { return !(d1 == d2); }
+    inline bool operator!=(const uniform_real_distribution<IntType> &d1, const uniform_real_distribution<IntType> &d2) {
+        return !(d1 == d2);
+    }
 }// namespace util

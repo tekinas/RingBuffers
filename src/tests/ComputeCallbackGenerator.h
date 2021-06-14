@@ -33,9 +33,7 @@ public:
     }
 
     size_t operator()(size_t num) const {
-        for (auto d : data) {
-            num ^= d;
-        }
+        for (auto d : data) { num ^= d; }
 
         return num;
     }
@@ -68,9 +66,7 @@ class CallbackGenerator {
 public:
     explicit CallbackGenerator(size_t seed) : random{seed} {}
 
-    void setSeed(uint32_t seed) {
-        random.setSeed(seed);
-    }
+    void setSeed(uint32_t seed) { random.setSeed(seed); }
 
     template<typename T>
     void addCallback(T &&push_back) noexcept {
@@ -80,9 +76,7 @@ public:
                 auto a = random.getRand<uint32_t>(0, max_);
                 auto b = random.getRand<uint32_t>(0, max_);
                 auto c = random.getRand<uint32_t>(0, max_);
-                push_back([=](size_t num) {
-                    return (num ^ a) & (b ^ c);
-                });
+                push_back([=](size_t num) { return (num ^ a) & (b ^ c); });
             } break;
             case 1: {
                 auto constexpr max_ = std::numeric_limits<uint32_t>::max();
@@ -93,9 +87,7 @@ public:
                 auto e = random.getRand<size_t>(0, max_);
                 auto f = random.getRand<size_t>(0, max_);
                 auto g = random.getRand<size_t>(0, max_);
-                push_back([=](size_t num) {
-                    return (num ^ a) & (b ^ c) >> (d % 5) ^ e << (f % 3) ^ g;
-                });
+                push_back([=](size_t num) { return (num ^ a) & (b ^ c) >> (d % 5) ^ e << (f % 3) ^ g; });
             } break;
             case 2:
                 push_back(compute_1);
@@ -131,9 +123,7 @@ public:
                 });
             } break;
             case 12: {
-                push_back([a = random.getRand<uint16_t>(0, 255)](size_t num) {
-                    return num ^ a;
-                });
+                push_back([a = random.getRand<uint16_t>(0, 255)](size_t num) { return num ^ a; });
             } break;
                 /*case 13:
                     rawComputeQueue.push_back(compute_1);
