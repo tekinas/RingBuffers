@@ -95,9 +95,9 @@ public:
     template<typename F>
     decltype(auto) consume(F &&functor) const noexcept {
         auto const output_index = m_OutputIndex.load(std::memory_order_relaxed);
+	auto &object = m_Array[output_index];
 
-        auto cleanup = [&,
-                        output_index] {/// destroy object and set next output index
+        auto cleanup = [&, output_index] {/// destroy object and set next output index
             destroy(output_index);
 
             auto const nextIndex = output_index == m_LastElementIndex ? 0 : (output_index + 1);
@@ -110,10 +110,10 @@ public:
 
         using ReturnType = decltype(std::forward<F>(functor)(std::declval<ObjectType &>()));
         if constexpr (std::is_same_v<void, ReturnType>) {
-            std::forward<F>(functor)(m_Array[output_index]);
+            std::forward<F>(functor)(object);
             cleanup();
         } else {
-            auto &&result{std::forward<F>(functor)(m_Array[output_index])};
+            auto &&result{std::forward<F>(functor)(object)};
             cleanup();
             return std::forward<decltype(result)>(result);
         }
@@ -144,9 +144,10 @@ public:
 
             objects_consumed = (end1 - output_index) + end2;
 
-        } else {/// if (output_index < input_index), case of (output_index ==
-                /// input_index) is not handled as consume functions must be called
-                /// after successful reserve
+        } else {
+            /// if (output_index < input_index), case of (output_index ==
+            /// input_index) is not handled as consume functions must be called
+            /// after successful reserve on the object queue by the thread reading from it.
             consume_and_destroy(output_index, input_index);
             objects_consumed = input_index - output_index;
         }
@@ -157,7 +158,8 @@ public:
     }
 
     template<typename T>
-    requires std::same_as<std::decay_t<T>, ObjectType> bool push_back(T &&obj) noexcept {
+    requires std::same_as<std::decay_t<T>, ObjectType>
+    bool push_back(T &&obj) noexcept {
         if constexpr (isWriteProtected) {
             if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return false;
         }
@@ -234,7 +236,7 @@ private:
                 std::destroy_n(m_Array + output_index, m_LastElementIndex - output_index + 1);
                 std::destroy_n(m_Array, input_index);
             } else
-                std::destroy_n(m_Array + output_index, m_InputIndex - output_index);
+                std::destroy_n(m_Array + output_index, input_index - output_index);
         }
     }
 
