@@ -1,12 +1,13 @@
 #ifndef FUNCTIONQUEUE_OjectQueue_MCSP_H
 #define FUNCTIONQUEUE_OjectQueue_MCSP_H
 
-#include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <type_traits>
+#include <utility>
 
 template<typename T>
 concept ObjectQueueFreeable = requires(T *obj) {
@@ -72,6 +73,37 @@ public:
 
     inline bool empty() const noexcept {
         return m_InputIndex.load(std::memory_order_acquire) == m_OutputHeadIndex.load(std::memory_order_relaxed);
+    }
+
+    Ptr consume() const noexcept {
+        auto const obj_index = get_index();
+        return obj_index != INVALID_INDEX ? Ptr{m_Array + obj_index} : Ptr{nullptr};
+    }
+
+
+    template<typename Functor>
+    bool consume(Functor &&functor) const noexcept {
+        auto const obj_index = get_index();
+        if (obj_index != INVALID_INDEX) {
+            std::forward<Functor>(functor)(m_Array[obj_index]);
+            destroy(obj_index);
+            return true;
+        } else
+            return false;
+    }
+
+    template<typename Functor>
+    bool consume_all(Functor &&functor) const noexcept {
+        uint32_t consumed{0};
+        while (true) {
+            auto const obj_index = get_index();
+            if (obj_index != INVALID_INDEX) {
+                std::forward<Functor>(functor)(m_Array[obj_index]);
+                destroy(obj_index);
+                ++consumed;
+            } else
+                return consumed;
+        }
     }
 
     template<typename T>
@@ -143,6 +175,20 @@ public:
     }
 
 private:
+    uint32_t get_index() const noexcept {
+        auto const input_index = m_InputIndex.load(std::memory_order_acquire);
+        auto output_head = m_OutputHeadIndex.load(std::memory_order_relaxed);
+        auto next_index = [&](uint32_t index) { return index == m_LastElementIndex ? 0 : index + 1; };
+
+        while (output_head != input_index) {
+            if (m_OutputHeadIndex.compare_exchange_strong(output_head, next_index(output_head),
+                                                          std::memory_order_relaxed, std::memory_order_relaxed))
+                return output_head;
+        }
+
+        return INVALID_INDEX;
+    }
+
     inline uint32_t cleanMemory() noexcept {/// this is the only function that modifies m_OutputTailIndex
         auto const output_tail = m_OutputTailIndex.load(std::memory_order_relaxed);
         auto const output_head = m_OutputHeadIndex.load(std::memory_order_acquire);
@@ -210,6 +256,8 @@ private:
         template<typename... T>
         explicit Null(T &&...) noexcept {}
     };
+
+    static constexpr uint32_t INVALID_INDEX = std::numeric_limits<uint32_t>::max();
 
     std::atomic<uint32_t> m_InputIndex{0};
     std::atomic<uint32_t> m_OutputTailIndex{0};
