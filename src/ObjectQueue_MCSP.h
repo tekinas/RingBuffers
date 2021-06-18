@@ -1,5 +1,5 @@
-#ifndef FUNCTIONQUEUE_OjectQueue_MCSP_H
-#define FUNCTIONQUEUE_OjectQueue_MCSP_H
+#ifndef FUNCTIONQUEUE_ObjectQueue_MCSP_H
+#define FUNCTIONQUEUE_ObjectQueue_MCSP_H
 
 #include <atomic>
 #include <cassert>
@@ -18,10 +18,10 @@ concept ObjectQueueFreeable = requires(T *obj) {
     { OQ_FreeObject(obj) } -> std::same_as<void>;
 };
 
-template<typename ObjectType, bool isReadProtected, bool isWriteProtected>
+template<typename ObjectType, bool isWriteProtected>
 requires ObjectQueueFreeable<ObjectType>
 
-class OjectQueue_MCSP {
+class ObjectQueue_MCSP {
 public:
     class Ptr {
     public:
@@ -49,7 +49,7 @@ public:
         }
 
     private:
-        friend class OjectQueue_MCSP;
+        friend class ObjectQueue_MCSP;
 
         explicit Ptr(ObjectType *object) noexcept : object_ptr{object} {}
 
@@ -57,11 +57,11 @@ public:
     };
 
 public:
-    inline OjectQueue_MCSP(ObjectType *buffer, uint32_t count) : m_Array{buffer}, m_LastElementIndex{count - 1} {
+    inline ObjectQueue_MCSP(ObjectType *buffer, uint32_t count) : m_Array{buffer}, m_LastElementIndex{count - 1} {
         if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
     }
 
-    ~OjectQueue_MCSP() noexcept { destroyAllObjects(); }
+    ~ObjectQueue_MCSP() noexcept { destroyAllObjects(); }
 
     inline auto size() const noexcept {
         auto const output_index = m_OutputHeadIndex.load(std::memory_order_relaxed);
@@ -80,7 +80,6 @@ public:
         return obj_index != INVALID_INDEX ? Ptr{m_Array + obj_index} : Ptr{nullptr};
     }
 
-
     template<typename Functor>
     bool consume(Functor &&functor) const noexcept {
         auto const obj_index = get_index();
@@ -93,7 +92,7 @@ public:
     }
 
     template<typename Functor>
-    bool consume_all(Functor &&functor) const noexcept {
+    uint32_t consume_all(Functor &&functor) const noexcept {
         uint32_t consumed{0};
         while (true) {
             auto const obj_index = get_index();
@@ -105,6 +104,23 @@ public:
                 return consumed;
         }
     }
+
+    template<typename Functor>
+    uint32_t consume_n(Functor &&functor) const noexcept {
+        uint32_t consumed{0};
+        while (true) {
+            auto const obj_index = get_index();
+            if (obj_index != INVALID_INDEX) {
+                bool const consume_more = std::forward<Functor>(functor)(m_Array[obj_index]);
+                destroy(obj_index);
+                ++consumed;
+
+                if (!consume_more) return consumed;
+            } else
+                return consumed;
+        }
+    }
+
 
     template<typename T>
     requires std::same_as<std::decay_t<T>, ObjectType>
@@ -176,7 +192,7 @@ public:
 
 private:
     uint32_t get_index() const noexcept {
-        auto const input_index = m_InputIndex.load(std::memory_order_acquire);
+        auto input_index = m_InputIndex.load(std::memory_order_acquire);
         auto output_head = m_OutputHeadIndex.load(std::memory_order_relaxed);
         auto next_index = [&](uint32_t index) { return index == m_LastElementIndex ? 0 : index + 1; };
 
@@ -184,6 +200,8 @@ private:
             if (m_OutputHeadIndex.compare_exchange_strong(output_head, next_index(output_head),
                                                           std::memory_order_relaxed, std::memory_order_relaxed))
                 return output_head;
+
+            input_index = m_InputIndex.load(std::memory_order_acquire);
         }
 
         return INVALID_INDEX;
@@ -247,7 +265,7 @@ private:
 
     inline void destroy(uint32_t index) const noexcept {
         if constexpr (!std::is_trivially_destructible_v<ObjectType>) { std::destroy_at(m_Array + index); }
-        OQ_FreeObject(m_Array + index);
+        OQ_FreeObject(m_Array + index);/// atomically reset object's memory to free status
     }
 
 private:
