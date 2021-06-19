@@ -2,12 +2,10 @@
 #define FUNCTIONQUEUE_ObjectQueue_MCSP_H
 
 #include <atomic>
-#include <cassert>
 #include <cstdint>
 #include <limits>
 #include <memory>
 #include <type_traits>
-#include <utility>
 
 template<typename T>
 concept ObjectQueueFreeable = requires(T *obj) {
