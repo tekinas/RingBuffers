@@ -8,9 +8,8 @@
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-// using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false,
-// false, false>;
-using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
+using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
+//using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
 
 void test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator &callbackGenerator,
                         size_t functions) noexcept;
@@ -18,8 +17,7 @@ void test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator
 int main(int argc, char **argv) {
     if (argc == 1) { println("usage : ./fq_test_1r_1w <buffer_size> <seed> <functions>"); }
 
-    size_t const rawQueueMemSize = [&] { return (argc >= 2) ? atof(argv[1]) : 10000 / 1024.0 / 1024.0; }() * 1024 *
-                                   1024;
+    size_t const rawQueueMemSize = [&] { return (argc >= 2) ? atof(argv[1]) : 1000 / 1024.0 / 1024.0; }() * 1024 * 1024;
 
     println("using buffer of size :", rawQueueMemSize);
 

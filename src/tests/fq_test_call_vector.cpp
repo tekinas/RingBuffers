@@ -11,9 +11,8 @@ using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
 using ComputeFunctionQueue = FunctionQueue<ComputeFunctionSig, false>;
-// using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false,
-// false, false>; using ComputeFunctionQueue =
-// FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
+//using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
+// using ComputeFunctionQueue =  FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
 
 using folly::Function;
 size_t *bytes_allocated = nullptr;
@@ -36,14 +35,17 @@ int main(int argc, char **argv) {
     ComputeFunctionQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
 
     size_t const compute_functors = [&] {
+        uint32_t functions{0};
         Timer timer{"function queue write time"};
         bool addFunction = true;
         while (addFunction) {
+            ++functions;
             callbackGenerator.addCallback(
                     [&]<typename T>(T &&t) { addFunction = rawComputeQueue.push_back(std::forward<T>(t)); });
         }
+        --functions;
 
-        return rawComputeQueue.size();
+        return functions;
     }();
 
     size_t computeVectorStorage{0}, computeStdVectorStorage{0};
@@ -93,7 +95,7 @@ void test(ComputeFunctionQueue &rawComputeQueue) noexcept {
     size_t num = 0;
     {
         Timer timer{"function queue"};
-        while (rawComputeQueue.reserve_function()) { num = rawComputeQueue.call_and_pop(num); }
+        while (rawComputeQueue.reserve()) { num = rawComputeQueue.call_and_pop(num); }
     }
     println("result :", num, '\n');
 }

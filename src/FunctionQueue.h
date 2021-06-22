@@ -100,7 +100,7 @@ public:
         if constexpr (destroyNonInvoked) { destroyAllFO(); }
     }
 
-    inline bool reserve_function() noexcept { return m_Remaining; }
+    inline bool reserve() noexcept { return m_Remaining; }
 
     inline R call_and_pop(Args... args) noexcept {
         auto const output_offset = m_OutPutOffset;
