@@ -1,4 +1,5 @@
 #include "../FunctionQueue.h"
+#include "../FunctionQueue_.h"
 #include "../FunctionQueue_MCSP.h"
 #include "../FunctionQueue_SCSP.h"
 #include "ComputeCallbackGenerator.h"
@@ -10,12 +11,11 @@
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-using ComputeFunctionQueue = FunctionQueue<ComputeFunctionSig, false>;
+using ComputeFunctionQueue = FunctionQueue_<ComputeFunctionSig, false>;
 //using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
-// using ComputeFunctionQueue =  FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
+//using ComputeFunctionQueue =  FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
 
 using folly::Function;
-size_t *bytes_allocated = nullptr;
 
 int main(int argc, char **argv) {
     if (argc == 1) { println("usage : ./fq_test_call_only <buffer_size> <seed>"); }
@@ -50,7 +50,7 @@ int main(int argc, char **argv) {
 
     size_t computeVectorStorage{0}, computeStdVectorStorage{0};
 
-    callbackGenerator.setSeed(seed);
+    /*callbackGenerator.setSeed(seed);
     {
         Timer timer{"vector of functions write time"};
         bytes_allocated = &computeVectorStorage;
@@ -71,7 +71,7 @@ int main(int argc, char **argv) {
             callbackGenerator.addCallback(
                     [&]<typename T>(T &&t) { computeStdVector.emplace_back(std::forward<T>(t)); });
         }
-    }
+    }*/
 
     println();
     println("total compute functions : ", compute_functors);
@@ -87,8 +87,8 @@ int main(int argc, char **argv) {
     void test(std::vector<std::function<ComputeFunctionSig>> &) noexcept;
 
     test(rawComputeQueue);
-    test(computeVector);
-    test(computeStdVector);
+    //test(computeVector);
+    //test(computeStdVector);
 }
 
 void test(ComputeFunctionQueue &rawComputeQueue) noexcept {
@@ -119,10 +119,3 @@ void test(std::vector<std::function<ComputeFunctionSig>> &vectorStdComputeQueue)
     }
     println("result :", num, '\n');
 }
-
-void *operator new(size_t bytes) {
-    if (bytes_allocated) *bytes_allocated += bytes;
-    return malloc(bytes);
-}
-
-void operator delete(void *ptr) { free(ptr); }

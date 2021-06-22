@@ -248,13 +248,12 @@ private:
                 }
             }
 
-            if (auto const ptr_pair = get_aligned_ptrs(m_Buffer, output_offset); ptr_pair.first && ptr_pair.second) {
-                if (auto const next_input_offset = get_next_input_offset(ptr_pair.second);
-                    next_input_offset != output_offset) {
+            if (output_offset)
+                if (auto const ptr_pair = get_aligned_ptrs(m_Buffer, output_offset - 1);
+                    ptr_pair.first && ptr_pair.second) {
                     m_SentinelRead.store(input_offset, std::memory_order_relaxed);
-                    return {ptr_pair.first, ptr_pair.second, next_input_offset};
+                    return {ptr_pair.first, ptr_pair.second, get_next_input_offset(ptr_pair.second)};
                 }
-            }
 
         } else {
             auto const ptr_pair = get_aligned_ptrs(m_Buffer + input_offset, output_offset - input_offset - 1);
