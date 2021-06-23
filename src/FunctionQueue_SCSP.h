@@ -222,7 +222,7 @@ private:
         while (output_offset != input_offset) { output_offset = destroyAndGetNext(output_offset); }
     }
 
-    inline Storage getStorage(size_t obj_align, size_t const obj_size) noexcept {
+    inline Storage __attribute__((always_inline)) getStorage(size_t obj_align, size_t const obj_size) noexcept {
         auto get_next_input_offset = [&](void *callable_ptr) -> uint32_t {
             return std::bit_cast<std::byte *>(callable_ptr) - m_Buffer + obj_size;
         };

@@ -95,7 +95,7 @@ public:
     template<typename F>
     decltype(auto) consume(F &&functor) const noexcept {
         auto const output_index = m_OutputIndex.load(std::memory_order_relaxed);
-	auto &object = m_Array[output_index];
+        auto &object = m_Array[output_index];
 
         auto cleanup = [&, output_index] {/// destroy object and set next output index
             destroy(output_index);
@@ -159,25 +159,7 @@ public:
 
     template<typename T>
     requires std::same_as<std::decay_t<T>, ObjectType>
-    bool push_back(T &&obj) noexcept {
-        if constexpr (isWriteProtected) {
-            if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return false;
-        }
-
-        auto const input_index = m_InputIndex.load(std::memory_order_relaxed);
-        auto const output_index = m_OutputIndex.load(std::memory_order_acquire);
-        auto const next_input_index = input_index == m_LastElementIndex ? 0 : (input_index + 1);
-
-        if (next_input_index == output_index) return false;
-
-        std::construct_at(m_Array + input_index, std::forward<T>(obj));
-
-        m_InputIndex.store(next_input_index, std::memory_order_release);
-
-        if constexpr (isWriteProtected) { m_WriteFlag.clear(std::memory_order_release); }
-
-        return true;
-    }
+    bool push_back(T &&obj) noexcept { return emplace_back(std::forward<T>(obj)); }
 
     template<typename... Args>
     bool emplace_back(Args &&...args) noexcept {

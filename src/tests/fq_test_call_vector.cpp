@@ -1,5 +1,4 @@
 #include "../FunctionQueue.h"
-#include "../FunctionQueue_.h"
 #include "../FunctionQueue_MCSP.h"
 #include "../FunctionQueue_SCSP.h"
 #include "ComputeCallbackGenerator.h"
@@ -11,7 +10,7 @@
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-using ComputeFunctionQueue = FunctionQueue_<ComputeFunctionSig, false>;
+using ComputeFunctionQueue = FunctionQueue<ComputeFunctionSig, false>;
 //using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
 //using ComputeFunctionQueue =  FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
 
