@@ -71,10 +71,10 @@ public:
     void addCallback(T &&push_back) noexcept {
         switch (random.getRand(0, 12)) {
             case 0: {
-                auto constexpr max_ = std::numeric_limits<uint32_t>::max();
-                auto a = random.getRand<uint32_t>(0, max_);
-                auto b = random.getRand<uint32_t>(0, max_);
-                auto c = random.getRand<uint32_t>(0, max_);
+                auto constexpr max_ = std::numeric_limits<uint64_t>::max();
+                auto a = random.getRand<uint64_t>(0, max_);
+                auto b = random.getRand<uint64_t>(0, max_);
+                auto c = random.getRand<uint64_t>(0, max_);
                 push_back([=](size_t num) {
                     boost::hash_combine(num, num);
                     boost::hash_combine(num, a);
@@ -104,7 +104,7 @@ public:
                     boost::hash_combine(num, d);
                     boost::hash_combine(num, e);
                     boost::hash_combine(num, f);
-                    boost::hash_combine(num, f);
+                    boost::hash_combine(num, g);
                     return num;
                 });
             } break;
@@ -138,8 +138,8 @@ public:
             case 11: {
                 push_back([a = random.getRand<uint16_t>(0, std::numeric_limits<uint16_t>::max())](size_t num) {
                     boost::hash_combine(num, a);
-                    boost::hash_combine(num, a);
                     boost::hash_combine(num, num);
+                    boost::hash_combine(num, a);
                     boost::hash_combine(num, num);
                     return num;
                 });

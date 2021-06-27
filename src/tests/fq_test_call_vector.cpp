@@ -7,32 +7,35 @@
 #include <chrono>
 #include <folly/Function.h>
 
-using namespace util;
+#define FMT_HEADER_ONLY
+#include <fmt/format.h>
+
 
 using ComputeFunctionSig = size_t(size_t);
 using ComputeFunctionQueue = FunctionQueue<ComputeFunctionSig, false>;
 //using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
-//using ComputeFunctionQueue =  FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
+//using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
 
 using folly::Function;
+using util::Timer;
 
 size_t *bytes_allocated = nullptr;
 
 int main(int argc, char **argv) {
-    if (argc == 1) { println("usage : ./fq_test_call_only <buffer_size> <seed>"); }
+    if (argc == 1) { fmt::print("usage : ./fq_test_call_only <buffer_size> <seed>\n"); }
 
     size_t const rawQueueMemSize = [&] { return (argc >= 2) ? atof(argv[1]) : 500.0; }() * 1024 * 1024;
-    println("using buffer of size :", rawQueueMemSize);
+    fmt::print("buffer size :", rawQueueMemSize);
 
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
-    println("using seed :", seed);
+    fmt::print("seed :", seed);
 
     std::vector<Function<ComputeFunctionSig>> computeVector{};
     std::vector<std::function<ComputeFunctionSig>> computeStdVector{};
 
     CallbackGenerator callbackGenerator{seed};
 
-    auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize);
+    auto const rawQueueMem = std::make_unique<std::byte[]>(rawQueueMemSize);
     ComputeFunctionQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
 
     size_t const compute_functors = [&] {
@@ -74,14 +77,11 @@ int main(int argc, char **argv) {
         }
     }
 
-    println();
-    println("total compute functions : ", compute_functors);
-    constexpr double ONE_MB = 1024.0 * 1024.0;
-    println("function queue storage :", rawQueueMemSize / ONE_MB, " Mb");
-    println("std::vector<folly::Function> storage :", computeVectorStorage / ONE_MB, " Mb");
-    println("std::vector<std::function> storage :", computeStdVectorStorage / ONE_MB, " Mb");
-
-    println();
+    fmt::print("\ncompute functions : {}\n ", compute_functors);
+    constexpr double ONE_MiB = 1024.0 * 1024.0;
+    fmt::print("function queue storage : {} MiB\n", rawQueueMemSize / ONE_MiB);
+    fmt::print("std::vector<folly::Function> storage : {} MiB\n", computeVectorStorage / ONE_MiB);
+    fmt::print("std::vector<std::function> storage : {} MiB\n\n", computeStdVectorStorage / ONE_MiB);
 
     void test(ComputeFunctionQueue &) noexcept;
     void test(std::vector<Function<ComputeFunctionSig>> &) noexcept;
@@ -98,7 +98,7 @@ void test(ComputeFunctionQueue &rawComputeQueue) noexcept {
         Timer timer{"function queue"};
         while (rawComputeQueue.reserve()) { num = rawComputeQueue.call_and_pop(num); }
     }
-    println("result :", num, '\n');
+    fmt::print("result : {}\n\n", num);
 }
 
 void test(std::vector<Function<ComputeFunctionSig>> &vectorComputeQueue) noexcept {
@@ -108,7 +108,7 @@ void test(std::vector<Function<ComputeFunctionSig>> &vectorComputeQueue) noexcep
 
         for (auto &&function : vectorComputeQueue) { num = function(num); }
     }
-    println("result :", num, '\n');
+    fmt::print("result : {}\n\n", num);
 }
 
 void test(std::vector<std::function<ComputeFunctionSig>> &vectorStdComputeQueue) noexcept {
@@ -118,7 +118,7 @@ void test(std::vector<std::function<ComputeFunctionSig>> &vectorStdComputeQueue)
 
         for (auto &&function : vectorStdComputeQueue) { num = function(num); }
     }
-    println("result :", num, '\n');
+    fmt::print("result : {}\n\n", num);
 }
 
 void *operator new(size_t bytes) {

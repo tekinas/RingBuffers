@@ -4,9 +4,13 @@
 #include <boost/container_hash/hash.hpp>
 #include <boost/lockfree/spsc_queue.hpp>
 
+#define FMT_HEADER_ONLY
+#include <fmt/format.h>
+
 #include <thread>
 
-using namespace util;
+using util::Random;
+using util::Timer;
 
 struct Obj {
     uint32_t a;
@@ -46,7 +50,7 @@ void test(boost_queue &objectQueue, uint32_t objects, std::size_t seed) noexcept
             obj -= objectQueue.consume_all([&](Obj const &obj) { obj.hash(seed); });
         }
 
-        println("boost queue hash of ", objects, " objects : ", seed);
+        fmt::print("hash of {} objects : {}\n", objects, seed);
     }};
 
     std::jthread writer{[&objectQueue, objects, seed] {
@@ -80,7 +84,7 @@ void test(ObjectQueue &objectQueue, uint32_t objects, std::size_t seed) noexcept
             obj -= objectQueue.consume_all([&](Obj const &obj) { obj.hash(seed); });
         }
 
-        println("ObjectQueue hash of ", objects, " objects : ", seed);
+        fmt::print("hash of {} objects : {}\n", objects, seed);
     }};
 
     std::jthread writer{[&objectQueue, objects, seed] {
@@ -119,6 +123,9 @@ int main() {
 
     boost_queue boostQueue{object_count};
 
+    fmt::print("boost queue test ...\n");
     test(boostQueue, objects, seed);
+
+    fmt::print("object queue test ...\n");
     test(objectQueue, objects, seed);
 }

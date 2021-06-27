@@ -3,14 +3,16 @@
 #include "ComputeCallbackGenerator.h"
 #include "util.h"
 
+#define FMT_HEADER_ONLY
+#include <fmt/format.h>
+
 #include <thread>
 
-using namespace util;
+using util::Timer;
 
 using ComputeFunctionSig = void();
 using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, true, false, false>;
-// using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, true,
-// false, false>;
+//using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, true, false>;
 
 struct ComputeCxt {
 private:
@@ -30,12 +32,12 @@ public:
                 [computeCxt{std::move(computeCxt)}, functionQueue]<typename T>(T &&t) mutable {
                     auto compute = [computeCxt{std::move(computeCxt)}, t{std::forward<T>(t)}, functionQueue]() mutable {
                         computeCxt->num = t(computeCxt->num);
-                        //                        std::cout << computeCxt->num << '\n';
+			//fmt::print("{}\n",computeCxt->num);
 
                         if (++computeCxt->func != computeCxt->num_functions)
                             ComputeCxt::addComputeTask(std::move(computeCxt), functionQueue);
                         else
-                            println("result :", computeCxt->num);
+                            fmt::print("result : {}\n", computeCxt->num);
                     };
 
                     while (!functionQueue->push_back(std::move(compute))) { std::this_thread::yield(); }
@@ -45,25 +47,25 @@ public:
 
 int main(int argc, char **argv) {
     if (argc == 1) {
-        println("usage : ./fq_test_nr_nw <buffer_size> <seed> <functions> "
-                "<threads> <compute_chains>");
+        fmt::print("usage : ./fq_test_nr_nw <buffer_size> <seed> <functions> "
+                "<threads> <compute_chains>\n");
     }
 
     size_t const rawQueueMemSize = [&] { return (argc >= 2) ? atof(argv[1]) : 10; }() * 1024 * 1024;
-    auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize + 10);
-    println("using buffer of size :", rawQueueMemSize);
+    auto const rawQueueMem = std::make_unique<std::byte[]>(rawQueueMemSize + 10);
+    fmt::print("buffer size : {}\n", rawQueueMemSize);
 
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
-    println("using seed :", seed);
+    fmt::print("seed : {}\n", seed);
 
     size_t const functions = [&] { return (argc >= 4) ? atol(argv[3]) : 12639182; }();
-    println("total functions :", functions);
+    fmt::print("functions : {}\n", functions);
 
     size_t const num_threads = [&] { return (argc >= 5) ? atol(argv[4]) : std::thread::hardware_concurrency(); }();
-    println("total num_threads :", num_threads);
+    fmt::print("threads : {}\n", num_threads);
 
     size_t const compute_chains = [&] { return (argc >= 6) ? atol(argv[5]) : std::thread::hardware_concurrency(); }();
-    println("total compute chains :", compute_chains);
+    fmt::print("compute chains : {}\n", compute_chains);
 
     ComputeFunctionQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
 

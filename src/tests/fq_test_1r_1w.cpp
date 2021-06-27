@@ -3,31 +3,34 @@
 #include "ComputeCallbackGenerator.h"
 #include "util.h"
 
+#define FMT_HEADER_ONLY
+#include <fmt/format.h>
+
 #include <thread>
 
-using namespace util;
-
 using ComputeFunctionSig = size_t(size_t);
-using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
-//using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
+//using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
+using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false>;
 
 void test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator &callbackGenerator,
                         size_t functions) noexcept;
 
+using util::Timer;
+
 int main(int argc, char **argv) {
-    if (argc == 1) { println("usage : ./fq_test_1r_1w <buffer_size> <seed> <functions>"); }
+    if (argc == 1) { fmt::print("usage : ./fq_test_1r_1w <buffer_size> <seed> <functions>\n"); }
 
     size_t const rawQueueMemSize = [&] { return (argc >= 2) ? atof(argv[1]) : 1000 / 1024.0 / 1024.0; }() * 1024 * 1024;
 
-    println("using buffer of size :", rawQueueMemSize);
+    fmt::print("buffer size : {}\n", rawQueueMemSize);
 
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
-    println("using seed :", seed);
+    fmt::print("seed : {}\n", seed);
 
     size_t const functions = [&] { return (argc >= 4) ? atol(argv[3]) : 12639182; }();
-    println("total functions :", functions);
+    fmt::print("functions : {}\n", functions);
 
-    auto const rawQueueMem = std::make_unique<uint8_t[]>(rawQueueMemSize);
+    auto const rawQueueMem = std::make_unique<std::byte[]>(rawQueueMemSize);
     ComputeFunctionQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
 
     CallbackGenerator callbackGenerator{seed};
@@ -37,7 +40,7 @@ int main(int argc, char **argv) {
 
 void test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator &callbackGenerator,
                         size_t functions) noexcept {
-    StartFlag start_flag;
+    util::StartFlag start_flag;
 
     std::jthread reader{[&] {
         start_flag.wait();
@@ -46,15 +49,22 @@ void test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator
             Timer timer{"reader"};
             while (res != std::numeric_limits<size_t>::max()) {
                 num = res;
-                if (rawComputeQueue.reserve()) {
-                    res = rawComputeQueue.call_and_pop(res);
-                    //                    println(res);
+                if (auto handle = rawComputeQueue.get_function_handle()) {
+                    res = handle.call_and_pop(res);
+                    //fmt::print("{}\n", res);
                 } else {
                     std::this_thread::yield();
                 }
+
+                /*if (rawComputeQueue.reserve()) {
+                    res = rawComputeQueue.call_and_pop(res);
+                    //fmt::print("{}\n", res);
+                } else {
+                    std::this_thread::yield();
+                }*/
             }
         }
-        println("result :", num, '\n');
+        fmt::print("result : {}\n", num);
     }};
 
     std::jthread writer{[&] {
