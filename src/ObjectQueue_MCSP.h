@@ -170,7 +170,7 @@ public:
     }
 
 private:
-    uint32_t get_index() const noexcept {
+    uint32_t __attribute__((always_inline)) get_index() const noexcept {
         auto input_index = m_InputIndex.load(std::memory_order_acquire);
         auto output_head = m_OutputHeadIndex.load(std::memory_order_relaxed);
         auto next_index = [&](uint32_t index) { return index == m_LastElementIndex ? 0 : index + 1; };
@@ -186,8 +186,10 @@ private:
         return INVALID_INDEX;
     }
 
-    inline uint32_t cleanMemory() noexcept {/// this is the only function that modifies m_OutputTailIndex
-        auto const output_tail = m_OutputTailIndex.load(std::memory_order_relaxed);
+    inline __attribute__((always_inline)) uint32_t cleanMemory() noexcept {
+        // this is the only function that modifies m_OutputTailIndex
+
+        auto const output_tail = m_OutputTailIndex;
         auto const output_head = m_OutputHeadIndex.load(std::memory_order_acquire);
 
         auto checkAndForwardIndex = [this](uint32_t tail, uint32_t end) {
@@ -199,14 +201,14 @@ private:
         if (output_tail == output_head) return output_tail;
         else if (output_tail < output_head) {
             auto const new_tail = checkAndForwardIndex(output_tail, output_head);
-            if (new_tail != output_tail) m_OutputTailIndex.store(new_tail, std::memory_order_relaxed);
+            if (new_tail != output_tail) m_OutputTailIndex = new_tail;
 
             return new_tail;
         } else {
             auto const array_end = m_LastElementIndex + 1;
             auto new_tail = checkAndForwardIndex(output_tail, array_end);
-            if (new_tail == array_end) { new_tail = checkAndForwardIndex(0, output_head); }
-            m_OutputTailIndex.store(new_tail, std::memory_order_relaxed);
+            if (new_tail == array_end) new_tail = checkAndForwardIndex(0, output_head);
+            m_OutputTailIndex = new_tail;
 
             return new_tail;
         }
@@ -215,7 +217,7 @@ private:
     void destroyAllObjects() noexcept {
         if constexpr (!std::is_trivially_destructible_v<ObjectType>) {
             auto const input_index = m_InputIndex.load(std::memory_order_relaxed);
-            auto const output_tail = m_OutputTailIndex.load(std::memory_order_relaxed);
+            auto const output_tail = m_OutputTailIndex;
             auto const output_head = m_OutputHeadIndex.load(std::memory_order_acquire);
 
             auto check_and_destroy_range = [this](uint32_t start, uint32_t end) {
@@ -244,7 +246,8 @@ private:
 
     inline void destroy(uint32_t index) const noexcept {
         if constexpr (!std::is_trivially_destructible_v<ObjectType>) { std::destroy_at(m_Array + index); }
-        OQ_FreeObject(m_Array + index);/// atomically reset object's memory to free status
+        // atomically reset object's memory to free status
+        OQ_FreeObject(m_Array + index);
     }
 
 private:
@@ -257,7 +260,7 @@ private:
     static constexpr uint32_t INVALID_INDEX = std::numeric_limits<uint32_t>::max();
 
     std::atomic<uint32_t> m_InputIndex{0};
-    std::atomic<uint32_t> m_OutputTailIndex{0};
+    uint32_t m_OutputTailIndex{0};
     mutable std::atomic<uint32_t> m_OutputHeadIndex{0};
 
     [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag;

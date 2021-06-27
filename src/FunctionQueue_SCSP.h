@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <bit>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -83,14 +84,14 @@ private:
     };
 
 public:
-    FunctionQueue_SCSP(void *memory, std::size_t size) noexcept
-        : m_Buffer{static_cast<std::byte *>(memory)}, m_BufferSize{static_cast<uint32_t>(size)} {
+    FunctionQueue_SCSP(std::byte *memory, std::size_t size) noexcept
+        : m_Buffer{memory}, m_BufferSize{static_cast<uint32_t>(size)} {
         if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order_relaxed);
         if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
     }
 
     ~FunctionQueue_SCSP() noexcept {
-        if constexpr (destroyNonInvoked) { destroyAllFO(); }
+        if constexpr (destroyNonInvoked) destroyAllFO();
     }
 
     inline auto buffer_size() const noexcept { return m_BufferSize; }
@@ -163,7 +164,7 @@ public:
 
         auto const storage = getStorage(alignof(Callable), sizeof(Callable));
         if (!storage) {
-            if constexpr (isWriteProtected) { m_WriteFlag.clear(std::memory_order_release); }
+            if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_release);
             return false;
         }
 
@@ -171,7 +172,7 @@ public:
 
         m_InputOffset.store(next_input_offset, std::memory_order_release);
 
-        if constexpr (isWriteProtected) { m_WriteFlag.clear(std::memory_order_release); }
+        if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_release);
 
         return true;
     }

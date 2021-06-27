@@ -78,8 +78,8 @@ private:
     };
 
 public:
-    FunctionQueue(void *memory, std::size_t size) noexcept
-        : m_Buffer{static_cast<std::byte *>(memory)}, m_BufferSize{static_cast<uint32_t>(size)} {}
+    FunctionQueue(std::byte *memory, std::size_t size) noexcept
+        : m_Buffer{memory}, m_BufferSize{static_cast<uint32_t>(size)} {}
 
     inline auto buffer_size() const noexcept { return m_BufferSize; }
 
