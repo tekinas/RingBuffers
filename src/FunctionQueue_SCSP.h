@@ -285,4 +285,4 @@ private:
                                             (static_cast<uintptr_t>(std::numeric_limits<uint32_t>::max()) << 32u);
 };
 
-#endif// FUNCTIONQUEUE_SCSP
+#endif
