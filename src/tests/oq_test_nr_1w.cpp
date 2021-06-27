@@ -2,6 +2,7 @@
 #include "../FunctionQueue_SCSP.h"
 #include "../ObjectQueue_MCSP.h"
 #include "util.h"
+#include <boost/container_hash/hash_fwd.hpp>
 #include <cstring>
 
 #define FMT_HEADER_ONLY
@@ -31,9 +32,17 @@ struct Obj {
           c{rng.getRand<uint64_t>(0, 835454325463)} {}
 
     uint64_t operator()(Random<> &rng) const noexcept {
+        size_t hash{};
+        boost::hash_combine(hash, a);
+        boost::hash_combine(hash, b);
+        boost::hash_combine(hash, c);
+        return hash;
+    }
+
+    /*uint64_t operator()(Random<> &rng) const noexcept {
         rng.setSeed(a);
         return rng.getRand<uint32_t>(0, a) * std::bit_cast<uint32_t>(rng.getRand(-b, b)) * rng.getRand<uint64_t>(0, c);
-    }
+    }*/
 };
 
 bool OQ_IsObjectFree(Obj *ptr) noexcept {
@@ -193,9 +202,9 @@ int main(int argc, char **argv) {
     auto functionQueueBuffer = std::make_unique<std::byte[]>(functionQueueBufferSize);
     FunctionQueue functionQueue{functionQueueBuffer.get(), functionQueueBufferSize};
 
-    fmt::print("Object Queue test ....\n");
-    test(objectQueue, num_threads, objects, seed);
-
-    fmt::print("\n\nFunction Queue test ....\n");
+    fmt::print("Function Queue test ....\n");
     test(functionQueue, num_threads, objects, seed);
+
+    fmt::print("\n\nObject Queue test ....\n");
+    test(objectQueue, num_threads, objects, seed);
 }
