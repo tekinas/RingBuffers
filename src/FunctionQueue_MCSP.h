@@ -45,7 +45,7 @@ private:
     private:
         Offset(uint32_t value, uint32_t index) noexcept : value{value}, index{index} {}
 
-        alignas(uint64_t) uint32_t value{};
+        alignas(std::atomic<uint64_t>) uint32_t value{};
         uint32_t index{};
     };
 
