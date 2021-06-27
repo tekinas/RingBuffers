@@ -5,7 +5,7 @@ project(FunctionQueue)
 set(CMAKE_CXX_STANDARD 20)
 
 if (UNIX)
-    set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} "-fno-rtti -fno-exceptions -static-libstdc++")
+    set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} "-fno-rtti -fno-exceptions")
     link_libraries(pthread)
 elseif (WIN32)
     set(LIB_DIR "C:/Users/Aniket Bisht/Documents/Libraries/Windows")  # set the library directory for Windows ::::
@@ -36,7 +36,6 @@ elseif (MSVC OR (WIN32 AND (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")))
     endif ()
 endif ()
 
-
 add_executable(fq_test_call_vector src/tests/fq_test_call_vector.cpp)
 add_executable(fq_test_call_queue src/tests/fq_test_call_queue.cpp)
 add_executable(fq_test_1r_1w src/tests/fq_test_1r_1w.cpp)
@@ -49,8 +48,3 @@ add_executable(dq_test_1r_1w src/tests/dq_test_1r_1w.cpp)
 add_executable(oq_test_1r_1w src/tests/oq_test_1r_1w.cpp)
 add_executable(oq_test_nr_1w src/tests/oq_test_nr_1w.cpp)
 add_executable(bq_test_throughput_1r_1w src/tests/bq_test_throughput_1r_1w.cpp)
-
-if (UNIX)
-    target_link_libraries(fq_test_nr_1w PRIVATE atomic)
-    target_link_libraries(dq_test_1r_1w PRIVATE atomic)
-endif ()
