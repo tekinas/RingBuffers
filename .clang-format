@@ -3,10 +3,10 @@ Language:        Cpp
 # BasedOnStyle:  LLVM
 AccessModifierOffset: -4
 AlignAfterOpenBracket: Align
-AlignConsecutiveMacros: false
-AlignConsecutiveAssignments: false
-AlignConsecutiveBitFields: false
-AlignConsecutiveDeclarations: false
+AlignConsecutiveMacros: None
+AlignConsecutiveAssignments: None
+AlignConsecutiveBitFields: None
+AlignConsecutiveDeclarations: None
 AlignEscapedNewlines: Right
 AlignOperands:   Align
 AlignTrailingComments: true
