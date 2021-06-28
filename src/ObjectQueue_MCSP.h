@@ -1,5 +1,5 @@
-#ifndef FUNCTIONQUEUE_ObjectQueue_MCSP_H
-#define FUNCTIONQUEUE_ObjectQueue_MCSP_H
+#ifndef OBJECTQUEUE_MCSP_H
+#define OBJECTQUEUE_MCSP_H
 
 #include <atomic>
 #include <cstdint>
@@ -9,7 +9,7 @@
 
 template<typename T>
 concept ObjectQueueFreeable = requires(T *obj) {
-    /// used by the writer thread to know if the given memory can be reused
+    /// used by the writer thread to know if the given memory is free and can be reused
     { OQ_IsObjectFree(obj) } -> std::same_as<bool>;
 
     /// used by the reader threads to 'mark' the memory as freed after the object in it is destroyed
@@ -21,6 +21,31 @@ requires ObjectQueueFreeable<ObjectType>
 
 class ObjectQueue_MCSP {
 public:
+    class Index {
+    public:
+        Index() noexcept = default;
+
+        Index(Index const &) noexcept = default;
+
+        friend bool operator==(Index const &l, Index const &r) noexcept {
+            return l.value == r.value && l.use_count == r.use_count;
+        }
+
+        uint32_t getValue() const noexcept { return value; }
+
+        uint32_t getCount() const noexcept { return use_count; }
+
+        Index getIncrCount(uint32_t new_value) const noexcept { return {new_value, use_count + 1}; }
+
+        Index getSameCount(uint32_t new_value) const noexcept { return {new_value, use_count}; }
+
+    private:
+        Index(uint32_t value, uint32_t index) noexcept : value{value}, use_count{index} {}
+
+        alignas(std::atomic<uint64_t>) uint32_t value{};
+        uint32_t use_count{};
+    };
+
     class Ptr {
     public:
         inline Ptr(Ptr &&other) noexcept : object_ptr{std::exchange(other.object_ptr, nullptr)} {}
@@ -130,14 +155,15 @@ public:
         }
 
         auto const input_index = m_InputIndex.load(std::memory_order_relaxed);
+        auto const index_value = input_index.getValue();
         auto const output_index = cleanMemory();
-        auto const next_input_index = input_index == m_LastElementIndex ? 0 : (input_index + 1);
+        auto const next_input_index = index_value == m_LastElementIndex ? 0 : (index_value + 1);
 
         if (next_input_index == output_index) return false;
 
-        std::construct_at(m_Array + input_index, std::forward<Args>(args)...);
+        std::construct_at(m_Array + index_value, std::forward<Args>(args)...);
 
-        m_InputIndex.store(next_input_index, std::memory_order_release);
+        m_InputIndex.store(input_index.getIncrCount(next_input_index), std::memory_order_release);
 
         if constexpr (isWriteProtected) { m_WriteFlag.clear(std::memory_order_release); }
 
@@ -151,18 +177,19 @@ public:
         }
 
         auto const input_index = m_InputIndex.load(std::memory_order_relaxed);
+        auto const index_value = input_index.getValue();
         auto const output_index = cleanMemory();
-        auto const count_avl = (input_index < output_index)
-                                       ? (output_index - input_index - 1)
-                                       : (m_LastElementIndex - input_index + static_cast<bool>(output_index));
+        auto const count_avl = (index_value < output_index)
+                                       ? (output_index - index_value - 1)
+                                       : (m_LastElementIndex - index_value + static_cast<bool>(output_index));
 
         if (!count_avl) return 0;
 
-        auto const count_emplaced = std::forward<Functor>(functor)(m_Array + input_index, count_avl);
-        auto const input_end = input_index + count_emplaced;
+        auto const count_emplaced = std::forward<Functor>(functor)(m_Array + index_value, count_avl);
+        auto const input_end = index_value + count_emplaced;
         auto const next_input_index = (input_end == (m_LastElementIndex + 1)) ? 0 : input_end;
 
-        m_InputIndex.store(next_input_index, std::memory_order_release);
+        m_InputIndex.store(input_index.getIncrCount(next_input_index), std::memory_order_release);
 
         if constexpr (isWriteProtected) { m_WriteFlag.clear(std::memory_order_release); }
 
@@ -170,7 +197,7 @@ public:
     }
 
 private:
-    uint32_t __attribute__((always_inline)) get_index() const noexcept {
+    /*uint32_t __attribute__((always_inline)) get_index() const noexcept {
         auto input_index = m_InputIndex.load(std::memory_order_acquire);
         auto output_head = m_OutputHeadIndex.load(std::memory_order_relaxed);
         auto next_index = [&](uint32_t index) { return index == m_LastElementIndex ? 0 : index + 1; };
@@ -184,13 +211,33 @@ private:
         }
 
         return INVALID_INDEX;
+    }*/
+
+    uint32_t __attribute__((always_inline)) get_index() const noexcept {
+        auto next_index = [&](uint32_t index) { return index == m_LastElementIndex ? 0 : index + 1; };
+
+        auto output_index = m_OutputHeadIndex.load(std::memory_order::relaxed);
+        Index nextOutputIndex;
+
+        do {
+            auto const input_index = m_InputIndex.load(std::memory_order::acquire);
+
+            if (input_index.getCount() < output_index.getCount()) return INVALID_INDEX;
+            if (input_index.getValue() == output_index.getValue()) return INVALID_INDEX;
+
+            nextOutputIndex = input_index.getSameCount(next_index(output_index.getValue()));
+
+        } while (!m_OutputHeadIndex.compare_exchange_weak(output_index, nextOutputIndex, std::memory_order::relaxed,
+                                                          std::memory_order::relaxed));
+
+        return output_index.getValue();
     }
 
     inline __attribute__((always_inline)) uint32_t cleanMemory() noexcept {
         // this is the only function that modifies m_OutputTailIndex
 
         auto const output_tail = m_OutputTailIndex;
-        auto const output_head = m_OutputHeadIndex.load(std::memory_order_acquire);
+        auto const output_head = m_OutputHeadIndex.load(std::memory_order_acquire).getValue();
 
         auto checkAndForwardIndex = [this](uint32_t tail, uint32_t end) {
             for (; tail != end && OQ_IsObjectFree(m_Array + tail); ++tail)
@@ -216,9 +263,9 @@ private:
 
     void destroyAllObjects() noexcept {
         if constexpr (!std::is_trivially_destructible_v<ObjectType>) {
-            auto const input_index = m_InputIndex.load(std::memory_order_relaxed);
+            auto const input_index = m_InputIndex.load(std::memory_order_relaxed).getValue();
             auto const output_tail = m_OutputTailIndex;
-            auto const output_head = m_OutputHeadIndex.load(std::memory_order_acquire);
+            auto const output_head = m_OutputHeadIndex.load(std::memory_order_acquire).getValue();
 
             auto check_and_destroy_range = [this](uint32_t start, uint32_t end) {
                 for (; start != end; ++start)
@@ -259,9 +306,9 @@ private:
 
     static constexpr uint32_t INVALID_INDEX = std::numeric_limits<uint32_t>::max();
 
-    std::atomic<uint32_t> m_InputIndex{0};
+    std::atomic<Index> m_InputIndex{};
     uint32_t m_OutputTailIndex{0};
-    mutable std::atomic<uint32_t> m_OutputHeadIndex{0};
+    mutable std::atomic<Index> m_OutputHeadIndex{};
 
     [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag;
 
