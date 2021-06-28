@@ -98,14 +98,14 @@ private:
 
         inline explicit operator bool() const noexcept { return fp_ptr && obj_ptr; }
 
-        void set_input_offset(uint32_t input_offset) noexcept { next_input_offset = input_offset; }
+        void setInputOffset(uint32_t input_offset) noexcept { next_input_offset = input_offset; }
 
         std::byte *getNextAddr(size_t obj_size) const noexcept {
             return std::bit_cast<std::byte *>(obj_ptr) + obj_size;
         }
 
         template<typename Callable, typename... CArgs>
-        inline uint32_t construct_callable(CArgs &&...args) const noexcept {
+        inline uint32_t constructCallable(CArgs &&...args) const noexcept {
             uint16_t const obj_offset = std::bit_cast<std::byte *>(obj_ptr) - std::bit_cast<std::byte *>(fp_ptr);
             new (fp_ptr)
                     FunctionContext{Type<Callable>{}, obj_offset, static_cast<uint16_t>(obj_offset + sizeof(Callable))};
@@ -116,7 +116,7 @@ private:
     private:
         FunctionContext *const fp_ptr{};
         void *const obj_ptr{};
-        uint32_t next_input_offset{};
+        uint32_t next_input_offset;
     };
 
 
@@ -170,7 +170,7 @@ public:
         FunctionContext *functionCxtPtr{nullptr};
     };
 
-    FunctionQueue_MCSP(std::byte *memory, std::size_t size) noexcept
+    FunctionQueue_MCSP(std::byte *memory, size_t size) noexcept
         : m_Buffer{memory}, m_BufferSize{static_cast<uint32_t>(size)} {
         if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::relaxed);
     }
@@ -188,11 +188,11 @@ public:
     void clear() noexcept {
         if constexpr (destroyNonInvoked) destroyAllFO();
 
-        m_InputOffset.store(0, std::memory_order_relaxed);
+        m_InputOffset.store({}, std::memory_order_relaxed);
         m_OutputTailOffset = 0;
         m_SentinelFollow = NO_SENTINEL;
 
-        m_OutputHeadOffset.store(0, std::memory_order::relaxed);
+        m_OutputHeadOffset.store({}, std::memory_order::relaxed);
         m_SentinelRead.store(NO_SENTINEL, std::memory_order::relaxed);
         if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::relaxed);
     }
@@ -264,7 +264,7 @@ public:
             return false;
         }
 
-        auto const next_input_offset = storage.template construct_callable<Callable>(std::forward<CArgs>(args)...);
+        auto const next_input_offset = storage.template constructCallable<Callable>(std::forward<CArgs>(args)...);
 
         m_InputOffset.store(input_offset.getIncrIndexed(next_input_offset), std::memory_order::release);
 
@@ -330,7 +330,7 @@ private:
 
         if (output_offset == input_offset) return;
 
-        auto destroyAndGetNext = [&](uint32_t output_offset) noexcept -> uint32_t {
+        auto destroyAndGetNext = [this](uint32_t output_offset) noexcept -> uint32_t {
             auto const functionCxtPtr = align<FunctionContext>(m_Buffer + output_offset);
             auto const offset = functionCxtPtr->getNextAddr() - m_Buffer;
             functionCxtPtr->destroyFO();
@@ -366,9 +366,9 @@ private:
             if (auto storage = getAlignedStorage(m_Buffer + input_offset, m_BufferSize - input_offset)) {
                 auto const next_input_offset = getNextInputOffset(storage);
                 if (next_input_offset < m_BufferSize) {
-                    storage.set_input_offset(next_input_offset);
+                    storage.setInputOffset(next_input_offset);
                 } else if (next_input_offset == m_BufferSize && output_offset) {
-                    storage.set_input_offset(0);
+                    storage.setInputOffset(0);
                 } else
                     return {};
                 return storage;
@@ -378,13 +378,13 @@ private:
                 if (auto storage = getAlignedStorage(m_Buffer, output_offset - 1)) {
                     m_SentinelFollow = input_offset;
                     m_SentinelRead.store(input_offset, std::memory_order::relaxed);
-                    storage.set_input_offset(getNextInputOffset(storage));
+                    storage.setInputOffset(getNextInputOffset(storage));
                     return storage;
                 }
 
         } else {
             auto storage = getAlignedStorage(m_Buffer + input_offset, output_offset - input_offset - 1);
-            storage.set_input_offset(getNextInputOffset(storage));
+            storage.setInputOffset(getNextInputOffset(storage));
             return storage;
         }
 

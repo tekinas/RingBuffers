@@ -9,8 +9,8 @@
 #include <thread>
 
 using ComputeFunctionSig = size_t(size_t);
-using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
-//using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false>;
+//using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
+using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false>;
 
 void test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator &callbackGenerator,
                         size_t functions) noexcept;
@@ -50,22 +50,23 @@ void test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator
             while (res != std::numeric_limits<size_t>::max()) {
                 num = res;
 
-                /*if (auto handle = rawComputeQueue.get_function_handle()) {
+                if (auto handle = rawComputeQueue.get_function_handle()) {
                     res = handle.call_and_pop(res);
                     //fmt::print("{}\n", res);
                 } else {
                     std::this_thread::yield();
-                }*/
+                }
 
-                if (rawComputeQueue.reserve()) {
+                /*if (rawComputeQueue.reserve()) {
                     res = rawComputeQueue.call_and_pop(res);
                     //fmt::print("{}\n", res);
                 } else {
                     std::this_thread::yield();
-                }
+                }*/
             }
         }
         fmt::print("result : {}\n", num);
+        rawComputeQueue.clear();
     }};
 
     std::jthread writer{[&] {
