@@ -31,18 +31,18 @@ struct Obj {
         : a{rng.getRand<uint32_t>(1, 99999 + 0b10101010101)}, b{rng.getRand<float>(-1.13242424f, 788978.0f)},
           c{rng.getRand<uint64_t>(0, 835454325463)} {}
 
-    uint64_t operator()(Random<> &rng) const noexcept {
+    /*uint64_t operator()(Random<> &rng) const noexcept {
         size_t hash{};
         boost::hash_combine(hash, a);
         boost::hash_combine(hash, b);
         boost::hash_combine(hash, c);
         return hash;
-    }
+    }*/
 
-    /*uint64_t operator()(Random<> &rng) const noexcept {
+    uint64_t operator()(Random<> &rng) const noexcept {
         rng.setSeed(a);
         return rng.getRand<uint32_t>(0, a) * std::bit_cast<uint32_t>(rng.getRand(-b, b)) * rng.getRand<uint64_t>(0, c);
-    }*/
+    }
 };
 
 bool OQ_IsObjectFree(Obj *ptr) noexcept {

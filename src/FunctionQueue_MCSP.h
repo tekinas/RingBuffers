@@ -15,15 +15,6 @@ class FunctionQueue_MCSP {};
 template<typename R, typename... Args, bool isWriteProtected, bool destroyNonInvoked>
 class FunctionQueue_MCSP<R(Args...), isWriteProtected, destroyNonInvoked> {
 private:
-    using InvokeAndDestroy = R (*)(void *obj_ptr, Args...) noexcept;
-    using Destroy = void (*)(void *obj_ptr) noexcept;
-
-    class Null {
-    public:
-        template<typename... T>
-        explicit Null(T &&...) noexcept {}
-    };
-
     class Offset {
     public:
         Offset() noexcept = default;
@@ -31,31 +22,41 @@ private:
         Offset(Offset const &) noexcept = default;
 
         friend bool operator==(Offset const &l, Offset const &r) noexcept {
-            return l.value == r.value && l.index == r.index;
+            return l.value == r.value && l.use_count == r.use_count;
         }
 
         uint32_t getValue() const noexcept { return value; }
 
-        uint32_t getIndex() const noexcept { return index; }
+        uint32_t getIndex() const noexcept { return use_count; }
 
-        Offset getIncrIndexed(uint32_t new_value) const noexcept { return {new_value, index + 1}; }
+        Offset getIncrIndexed(uint32_t new_value) const noexcept { return {new_value, use_count + 1}; }
 
-        Offset getSameIndexed(uint32_t new_value) const noexcept { return {new_value, index}; }
+        Offset getSameIndexed(uint32_t new_value) const noexcept { return {new_value, use_count}; }
 
     private:
-        Offset(uint32_t value, uint32_t index) noexcept : value{value}, index{index} {}
+        Offset(uint32_t value, uint32_t index) noexcept : value{value}, use_count{index} {}
 
         alignas(std::atomic<uint64_t>) uint32_t value{};
-        uint32_t index{};
+        uint32_t use_count{};
     };
 
     template<typename>
     class Type {};
 
+    class Null {
+    public:
+        template<typename... T>
+        explicit Null(T &&...) noexcept {}
+    };
+
+
     struct Storage;
 
     class FunctionContext {
     public:
+        using InvokeAndDestroy = R (*)(void *obj_ptr, Args...) noexcept;
+        using Destroy = void (*)(void *obj_ptr) noexcept;
+
         inline auto getReadData() const noexcept {
             return std::pair{std::bit_cast<InvokeAndDestroy>(fp_offset.load(std::memory_order::relaxed) + fp_base),
                              std::bit_cast<std::byte *>(this) + obj_offset};
@@ -105,7 +106,7 @@ private:
         }
 
         template<typename Callable, typename... CArgs>
-        inline uint32_t constructCallable(CArgs &&...args) const noexcept {
+        inline uint32_t construct(CArgs &&...args) const noexcept {
             uint16_t const obj_offset = std::bit_cast<std::byte *>(obj_ptr) - std::bit_cast<std::byte *>(fp_ptr);
             new (fp_ptr)
                     FunctionContext{Type<Callable>{}, obj_offset, static_cast<uint16_t>(obj_offset + sizeof(Callable))};
@@ -264,7 +265,7 @@ public:
             return false;
         }
 
-        auto const next_input_offset = storage.template constructCallable<Callable>(std::forward<CArgs>(args)...);
+        auto const next_input_offset = storage.template construct<Callable>(std::forward<CArgs>(args)...);
 
         m_InputOffset.store(input_offset.getIncrIndexed(next_input_offset), std::memory_order::release);
 
