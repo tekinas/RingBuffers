@@ -25,10 +25,10 @@ int main(int argc, char **argv) {
     if (argc == 1) { fmt::print("usage : ./fq_test_call_only <buffer_size> <seed>\n"); }
 
     size_t const rawQueueMemSize = [&] { return (argc >= 2) ? atof(argv[1]) : 500.0; }() * 1024 * 1024;
-    fmt::print("buffer size :", rawQueueMemSize);
+    fmt::print("buffer size : {}\n", rawQueueMemSize);
 
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
-    fmt::print("seed :", seed);
+    fmt::print("seed : {}\n", seed);
 
     std::vector<Function<ComputeFunctionSig>> computeVector{};
     std::vector<std::function<ComputeFunctionSig>> computeStdVector{};
