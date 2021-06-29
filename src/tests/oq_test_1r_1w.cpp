@@ -139,20 +139,28 @@ void test(FunctionQueue &functionQueue, uint32_t objects, std::size_t seed) noex
     }};
 }
 
-int main() {
-    constexpr uint32_t object_count = 10'0000;
-    constexpr uint32_t objects = 100'000'000;
-    constexpr std::size_t seed = 121212121;
+int main(int argc, char **argv) {
+    if (argc == 1) { fmt::print("usage : ./oq_test_1r_1w <capacity> <seed> <objects>\n"); }
 
-    auto buffer = std::make_unique<std::aligned_storage_t<sizeof(Obj), alignof(Obj)>[]>(object_count);
-    ObjectQueueSCSP objectQueueSCSP{reinterpret_cast<Obj *>(buffer.get()), object_count};
-    ObjectQueueMCSP objectQueueMCSP{reinterpret_cast<Obj *>(buffer.get()), object_count};
-    FunctionQueue funtionQueue{reinterpret_cast<std::byte*>(buffer.get()),sizeof(Obj) * object_count};
+    size_t const capacity = [&] { return (argc >= 2) ? atol(argv[1]) : 100'000; }();
+    fmt::print("capacity : {}\n", capacity);
 
-    boost_queue boostQueue{object_count};
+    size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
+    fmt::print("seed : {}\n", seed);
 
-    fmt::print("boost queue test ...\n");
-    test(boostQueue, objects, seed);
+    size_t const objects = [&] { return (argc >= 4) ? atol(argv[3]) : 100'000'000; }();
+    fmt::print("objects : {}\n", objects);
+
+    {
+        boost_queue boostQueue{capacity};
+        fmt::print("\nboost queue test ...\n");
+        test(boostQueue, objects, seed);
+    }
+
+    auto buffer = std::make_unique<std::aligned_storage_t<sizeof(Obj), alignof(Obj)>[]>(capacity);
+    ObjectQueueSCSP objectQueueSCSP{reinterpret_cast<Obj *>(buffer.get()), capacity};
+    ObjectQueueMCSP objectQueueMCSP{reinterpret_cast<Obj *>(buffer.get()), capacity};
+    FunctionQueue funtionQueue{reinterpret_cast<std::byte *>(buffer.get()), sizeof(Obj) * capacity};
 
     fmt::print("\nobject queue scsp test ...\n");
     test(objectQueueSCSP, objects, seed);

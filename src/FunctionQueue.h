@@ -13,9 +13,6 @@ class FunctionQueue {};
 template<typename R, typename... Args, bool destroyNonInvoked>
 class FunctionQueue<R(Args...), destroyNonInvoked> {
 private:
-    using InvokeAndDestroy = R (*)(void *obj_ptr, Args...) noexcept;
-    using Destroy = void (*)(void *obj_ptr) noexcept;
-
     class Null {
     public:
         template<typename... T>
@@ -29,6 +26,9 @@ private:
 
     class FunctionContext {
     public:
+        using InvokeAndDestroy = R (*)(void *obj_ptr, Args...) noexcept;
+        using Destroy = void (*)(void *obj_ptr) noexcept;
+
         inline auto getReadData() noexcept {
             return std::tuple{std::bit_cast<InvokeAndDestroy>(fp_offset + fp_base),
                               std::bit_cast<std::byte *>(this) + obj_offset, getNextAddr()};
@@ -95,7 +95,7 @@ public:
     }
 
     ~FunctionQueue() noexcept {
-        if constexpr (destroyNonInvoked) { destroyAllFO(); }
+        if constexpr (destroyNonInvoked) destroyAllFO();
     }
 
     inline bool reserve() const noexcept { return m_Remaining; }
@@ -114,7 +114,7 @@ public:
             m_OutputOffset = nextOffset;
         };
 
-        if constexpr (std::is_same_v<void, R>) {
+        if constexpr (std::is_void_v<R>) {
             invokeAndDestroyFP(objPtr, args...);
             decr_rem_incr_output_offset();
         } else {
@@ -151,7 +151,7 @@ private:
     template<typename Callable>
     static R invokeAndDestroy(void *data, Args... args) noexcept {
         auto const functor_ptr = static_cast<Callable *>(data);
-        if constexpr (std::is_same_v<R, void>) {
+        if constexpr (std::is_void_v<R>) {
             (*functor_ptr)(std::forward<Args>(args)...);
             std::destroy_at(functor_ptr);
         } else {
@@ -242,11 +242,11 @@ private:
     std::byte *const m_Buffer;
 
     static R baseFP(Args...) noexcept {
-        if constexpr (!std::is_same_v<R, void>) return std::declval<R>();
+        if constexpr (!std::is_void_v<R>) return std::declval<R>();
     }
 
     static inline const uintptr_t fp_base = std::bit_cast<uintptr_t>(&invokeAndDestroy<decltype(&baseFP)>) &
                                             (static_cast<uintptr_t>(std::numeric_limits<uint32_t>::max()) << 32u);
 };
 
-#endif// FUNCTIONQUEUE
+#endif

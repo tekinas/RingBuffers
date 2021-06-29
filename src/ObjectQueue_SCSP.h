@@ -52,7 +52,8 @@ public:
     };
 
 public:
-    inline ObjectQueue_SCSP(ObjectType *buffer, uint32_t count) : m_Array{buffer}, m_LastElementIndex{count - 1} {
+    inline ObjectQueue_SCSP(ObjectType *buffer, size_t count)
+        : m_Array{buffer}, m_LastElementIndex{static_cast<uint32_t>(count) - 1} {
         if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order_relaxed);
         if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
     }
