@@ -26,7 +26,7 @@ private:
 
     struct Storage;
 
-    struct FunctionContext {
+    class FunctionContext {
     public:
         using InvokeAndDestroy = R (*)(void *obj_ptr, Args...) noexcept;
         using Destroy = void (*)(void *obj_ptr) noexcept;
@@ -62,32 +62,39 @@ private:
     public:
         Storage() noexcept = default;
 
-        Storage(void *fp_ptr, void *obj_ptr, uint32_t input_offset) noexcept
-            : fp_ptr{static_cast<FunctionContext *>(fp_ptr)}, obj_ptr{obj_ptr}, next_input_offset{input_offset} {}
-
         inline explicit operator bool() const noexcept { return fp_ptr && obj_ptr; }
 
         template<typename Callable, typename... CArgs>
-        inline uint32_t construct_callable(CArgs &&...args) const noexcept {
+        inline std::byte *construct_callable(CArgs &&...args) const noexcept {
             uint16_t const obj_offset = std::bit_cast<std::byte *>(obj_ptr) - std::bit_cast<std::byte *>(fp_ptr);
             new (fp_ptr)
                     FunctionContext{Type<Callable>{}, obj_offset, static_cast<uint16_t>(obj_offset + sizeof(Callable))};
             new (obj_ptr) Callable{std::forward<CArgs>(args)...};
 
-            return next_input_offset;
+            return std::bit_cast<std::byte *>(obj_ptr) + sizeof(Callable);
+        }
+
+        static Storage getAlignedStorage(void *buffer, size_t size, size_t obj_align, size_t obj_size) noexcept {
+            auto const fp_storage = std::align(alignof(FunctionContext), sizeof(FunctionContext), buffer, size);
+            buffer = std::bit_cast<std::byte *>(buffer) + sizeof(FunctionContext);
+            size -= sizeof(FunctionContext);
+            auto const callable_storage = std::align(obj_align, obj_size, buffer, size);
+            return {fp_storage, callable_storage};
         }
 
     private:
+        Storage(void *fp_ptr, void *obj_ptr) noexcept
+            : fp_ptr{static_cast<FunctionContext *>(fp_ptr)}, obj_ptr{obj_ptr} {}
+
         FunctionContext *const fp_ptr{};
         void *const obj_ptr{};
-        uint32_t const next_input_offset{};
     };
 
 public:
     FunctionQueue_SCSP(std::byte *memory, std::size_t size) noexcept
         : m_Buffer{memory}, m_BufferSize{static_cast<uint32_t>(size)} {
-        if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order_relaxed);
-        if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
+        if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order::relaxed);
+        if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::relaxed);
     }
 
     ~FunctionQueue_SCSP() noexcept {
@@ -97,24 +104,24 @@ public:
     inline auto buffer_size() const noexcept { return m_BufferSize; }
 
     bool empty() const noexcept {
-        return m_InputOffset.load(std::memory_order_acquire) == m_OutputOffset.load(std::memory_order_acquire);
+        return m_InputOffset.load(std::memory_order::acquire) == m_OutputOffset.load(std::memory_order::acquire);
     }
 
     void clear() noexcept {
         if constexpr (destroyNonInvoked) destroyAllFO();
 
-        m_InputOffset.store(0, std::memory_order_relaxed);
-        m_OutputOffset.store(0, std::memory_order_relaxed);
-        m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed);
-        if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_relaxed);
-        if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order_relaxed);
+        m_InputOffset.store(0, std::memory_order::relaxed);
+        m_OutputOffset.store(0, std::memory_order::relaxed);
+        m_SentinelRead.store(NO_SENTINEL, std::memory_order::relaxed);
+        if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::relaxed);
+        if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order::relaxed);
     }
 
     inline bool reserve() const noexcept {
         if constexpr (isReadProtected) {
-            if (m_ReadFlag.test_and_set(std::memory_order_relaxed)) return false;
+            if (m_ReadFlag.test_and_set(std::memory_order::relaxed)) return false;
             if (empty()) {
-                m_ReadFlag.clear(std::memory_order_relaxed);
+                m_ReadFlag.clear(std::memory_order::relaxed);
                 return false;
             } else
                 return true;
@@ -123,21 +130,19 @@ public:
     }
 
     inline R call_and_pop(Args... args) const noexcept {
-        auto const output_offset = m_OutputOffset.load(std::memory_order_relaxed);
-        bool const found_sentinel = output_offset == m_SentinelRead.load(std::memory_order_relaxed);
-        if (found_sentinel) { m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed); }
+        auto const output_offset = m_OutputOffset.load(std::memory_order::relaxed);
+        bool const found_sentinel = output_offset == m_SentinelRead.load(std::memory_order::relaxed);
+        if (found_sentinel) { m_SentinelRead.store(NO_SENTINEL, std::memory_order::relaxed); }
 
         auto const functionCxtPtr = align<FunctionContext>(m_Buffer + (found_sentinel ? 0 : output_offset));
-
         auto const [invokeAndDestroyFP, objPtr, nextAddr] = functionCxtPtr->getReadData();
 
-        auto incr_output_offset = [this, offset{nextAddr - m_Buffer}] {
-            auto const next_output_offset = offset != m_BufferSize ? offset : 0;
-            m_OutputOffset.store(next_output_offset, std::memory_order_release);
-            if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order_release);
+        auto incr_output_offset = [this, next_output_offset{nextAddr - m_Buffer}] {
+            m_OutputOffset.store(next_output_offset, std::memory_order::release);
+            if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order::release);
         };
 
-        if constexpr (std::is_same_v<void, R>) {
+        if constexpr (std::is_void_v<R>) {
             invokeAndDestroyFP(objPtr, args...);
             incr_output_offset();
         } else {
@@ -156,20 +161,21 @@ public:
     template<typename Callable, typename... CArgs>
     inline bool emplace_back(CArgs &&...args) noexcept {
         if constexpr (isWriteProtected) {
-            if (m_WriteFlag.test_and_set(std::memory_order_acquire)) return false;
+            if (m_WriteFlag.test_and_set(std::memory_order::acquire)) return false;
         }
 
         auto const storage = getStorage(alignof(Callable), sizeof(Callable));
         if (!storage) {
-            if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_release);
+            if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::release);
             return false;
         }
 
-        auto const next_input_offset = storage.template construct_callable<Callable>(std::forward<CArgs>(args)...);
+        uint32_t const next_input_offset =
+                storage.template construct_callable<Callable>(std::forward<CArgs>(args)...) - m_Buffer;
 
-        m_InputOffset.store(next_input_offset, std::memory_order_release);
+        m_InputOffset.store(next_input_offset, std::memory_order::release);
 
-        if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order_release);
+        if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::release);
 
         return true;
     }
@@ -183,7 +189,7 @@ private:
     template<typename Callable>
     static R invokeAndDestroy(void *data, Args... args) noexcept {
         auto const functor_ptr = static_cast<Callable *>(data);
-        if constexpr (std::is_same_v<R, void>) {
+        if constexpr (std::is_void_v<R>) {
             (*functor_ptr)(std::forward<Args>(args)...);
             std::destroy_at(functor_ptr);
         } else {
@@ -200,8 +206,8 @@ private:
 
     template<typename = void>
     requires(destroyNonInvoked) void destroyAllFO() {
-        auto const input_offset = m_InputOffset.load(std::memory_order_acquire);
-        auto output_offset = m_OutputOffset.load(std::memory_order_acquire);
+        auto const input_offset = m_InputOffset.load(std::memory_order::acquire);
+        auto output_offset = m_OutputOffset.load(std::memory_order::acquire);
 
         auto destroyAndGetNext = [this](uint32_t offset) {
             auto const functionCxtPtr = align<FunctionContext>(m_Buffer + offset);
@@ -211,8 +217,7 @@ private:
 
         if (input_offset == output_offset) return;
         if (output_offset > input_offset) {
-            auto sentinel = m_SentinelRead.load(std::memory_order_relaxed);
-            if (sentinel == NO_SENTINEL) sentinel = m_BufferSize;
+            auto const sentinel = m_SentinelRead.load(std::memory_order::relaxed);
             while (output_offset != sentinel) { output_offset = destroyAndGetNext(output_offset); }
             output_offset = 0;
         }
@@ -221,44 +226,25 @@ private:
     }
 
     inline Storage __attribute__((always_inline)) getStorage(size_t obj_align, size_t const obj_size) noexcept {
-        auto get_next_input_offset = [&](void *callable_ptr) -> uint32_t {
-            return std::bit_cast<std::byte *>(callable_ptr) - m_Buffer + obj_size;
-        };
-
-        auto get_aligned_ptrs = [obj_align, obj_size](void *buffer, size_t size) noexcept -> std::pair<void *, void *> {
-            auto const fp_storage = std::align(alignof(FunctionContext), sizeof(FunctionContext), buffer, size);
-            buffer = std::bit_cast<std::byte *>(buffer) + sizeof(FunctionContext);
-            size -= sizeof(FunctionContext);
-            auto const callable_storage = std::align(obj_align, obj_size, buffer, size);
-            return {fp_storage, callable_storage};
-        };
-
-        auto const input_offset = m_InputOffset.load(std::memory_order_relaxed);
-        auto const output_offset = m_OutputOffset.load(std::memory_order_acquire);
+        auto const input_offset = m_InputOffset.load(std::memory_order::relaxed);
+        auto const output_offset = m_OutputOffset.load(std::memory_order::acquire);
 
         if (input_offset >= output_offset) {
-            if (auto const ptr_pair = get_aligned_ptrs(m_Buffer + input_offset, m_BufferSize - input_offset);
-                ptr_pair.first && ptr_pair.second) {
-                auto const next_input_offset = get_next_input_offset(ptr_pair.second);
-                if (next_input_offset < m_BufferSize) return {ptr_pair.first, ptr_pair.second, next_input_offset};
-                else if (next_input_offset == m_BufferSize && output_offset) {
-                    return {ptr_pair.first, ptr_pair.second, 0};
-                }
+            if (auto const storage = Storage::getAlignedStorage(m_Buffer + input_offset,
+                                                                m_BufferSize - input_offset - 1, obj_align, obj_size)) {
+                return storage;
             }
 
-            if (output_offset)
-                if (auto const ptr_pair = get_aligned_ptrs(m_Buffer, output_offset - 1);
-                    ptr_pair.first && ptr_pair.second) {
-                    m_SentinelRead.store(input_offset, std::memory_order_relaxed);
-                    return {ptr_pair.first, ptr_pair.second, get_next_input_offset(ptr_pair.second)};
+            if (output_offset) {
+                if (auto const storage = Storage::getAlignedStorage(m_Buffer, output_offset - 1, obj_align, obj_size)) {
+                    m_SentinelRead.store(input_offset, std::memory_order::relaxed);
+                    return storage;
                 }
-
-        } else {
-            auto const ptr_pair = get_aligned_ptrs(m_Buffer + input_offset, output_offset - input_offset - 1);
-            return {ptr_pair.first, ptr_pair.second, get_next_input_offset(ptr_pair.second)};
-        }
-
-        return {};
+            }
+            return {};
+        } else
+            return Storage::getAlignedStorage(m_Buffer + input_offset, output_offset - input_offset - 1, obj_align,
+                                              obj_size);
     }
 
 private:
@@ -275,7 +261,7 @@ private:
     std::byte *const m_Buffer;
 
     static R baseFP(Args...) noexcept {
-        if constexpr (!std::is_same_v<R, void>) return std::declval<R>();
+        if constexpr (!std::is_void_v<R>) return std::declval<R>();
     }
 
     static inline const uintptr_t fp_base = std::bit_cast<uintptr_t>(&invokeAndDestroy<decltype(&baseFP)>) &
