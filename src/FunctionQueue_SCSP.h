@@ -15,9 +15,6 @@ class FunctionQueue_SCSP {};
 template<typename R, typename... Args, bool isReadProtected, bool isWriteProtected, bool destroyNonInvoked>
 class FunctionQueue_SCSP<R(Args...), isReadProtected, isWriteProtected, destroyNonInvoked> {
 private:
-    using InvokeAndDestroy = R (*)(void *obj_ptr, Args...) noexcept;
-    using Destroy = void (*)(void *obj_ptr) noexcept;
-
     class Null {
     public:
         template<typename... T>
@@ -31,6 +28,9 @@ private:
 
     struct FunctionContext {
     public:
+        using InvokeAndDestroy = R (*)(void *obj_ptr, Args...) noexcept;
+        using Destroy = void (*)(void *obj_ptr) noexcept;
+
         inline auto getReadData() noexcept {
             return std::tuple{std::bit_cast<InvokeAndDestroy>(fp_offset + fp_base),
                               std::bit_cast<std::byte *>(this) + obj_offset, getNextAddr()};
@@ -110,7 +110,7 @@ public:
         if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order_relaxed);
     }
 
-    inline bool reserve() noexcept {
+    inline bool reserve() const noexcept {
         if constexpr (isReadProtected) {
             if (m_ReadFlag.test_and_set(std::memory_order_relaxed)) return false;
             if (empty()) {
@@ -122,7 +122,7 @@ public:
             return !empty();
     }
 
-    inline R call_and_pop(Args... args) noexcept {
+    inline R call_and_pop(Args... args) const noexcept {
         auto const output_offset = m_OutputOffset.load(std::memory_order_relaxed);
         bool const found_sentinel = output_offset == m_SentinelRead.load(std::memory_order_relaxed);
         if (found_sentinel) { m_SentinelRead.store(NO_SENTINEL, std::memory_order_relaxed); }
@@ -131,21 +131,18 @@ public:
 
         auto const [invokeAndDestroyFP, objPtr, nextAddr] = functionCxtPtr->getReadData();
 
-        auto decr_rem_incr_output_offset = [this, offset{nextAddr - m_Buffer}] {
+        auto incr_output_offset = [this, offset{nextAddr - m_Buffer}] {
             auto const next_output_offset = offset != m_BufferSize ? offset : 0;
-            if constexpr (isReadProtected) {
-                m_OutputOffset.store(next_output_offset, std::memory_order_release);
-                m_ReadFlag.clear(std::memory_order_release);
-            } else
-                m_OutputOffset.store(next_output_offset, std::memory_order_release);
+            m_OutputOffset.store(next_output_offset, std::memory_order_release);
+            if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order_release);
         };
 
         if constexpr (std::is_same_v<void, R>) {
             invokeAndDestroyFP(objPtr, args...);
-            decr_rem_incr_output_offset();
+            incr_output_offset();
         } else {
             auto &&result{invokeAndDestroyFP(objPtr, args...)};
-            decr_rem_incr_output_offset();
+            incr_output_offset();
             return std::forward<decltype(result)>(result);
         }
     }
@@ -268,17 +265,17 @@ private:
     static constexpr uint32_t NO_SENTINEL{std::numeric_limits<uint32_t>::max()};
 
     std::atomic<uint32_t> m_InputOffset{0};
-    std::atomic<uint32_t> m_OutputOffset{0};
-    std::atomic<uint32_t> m_SentinelRead{NO_SENTINEL};
+    mutable std::atomic<uint32_t> m_OutputOffset{0};
+    mutable std::atomic<uint32_t> m_SentinelRead{NO_SENTINEL};
 
     [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag;
-    [[no_unique_address]] std::conditional_t<isReadProtected, std::atomic_flag, Null> m_ReadFlag;
+    [[no_unique_address]] mutable std::conditional_t<isReadProtected, std::atomic_flag, Null> m_ReadFlag;
 
     uint32_t const m_BufferSize;
     std::byte *const m_Buffer;
 
     static R baseFP(Args...) noexcept {
-        if constexpr (!std::is_same_v<R, void>) { return R{}; }
+        if constexpr (!std::is_same_v<R, void>) return std::declval<R>();
     }
 
     static inline const uintptr_t fp_base = std::bit_cast<uintptr_t>(&invokeAndDestroy<decltype(&baseFP)>) &
