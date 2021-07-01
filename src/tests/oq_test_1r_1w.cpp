@@ -197,7 +197,7 @@ void test(BufferQueueSCSP &bufferQueue, uint32_t objects, size_t seed) noexcept 
         size_t seed{0};
         while (obj) {
             while (!bufferQueue.reserve()) std::this_thread::yield();
-            bufferQueue.consume([&](std::byte *buffer, uint32_t size) {
+            auto const bytes_cousumed = bufferQueue.consume_all([&](std::byte *buffer, uint32_t size) {
                 std::span span{std::bit_cast<Obj *>(buffer), size / sizeof(Obj)};
                 for (auto &object : span) object(seed);
                 obj -= span.size();
