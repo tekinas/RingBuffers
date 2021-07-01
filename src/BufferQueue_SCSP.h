@@ -12,12 +12,6 @@
 template<bool isReadProtected, bool isWriteProtected, size_t buffer_align = sizeof(std::max_align_t)>
 class BufferQueue_SCSP {
 private:
-    class Null {
-    public:
-        template<typename... T>
-        explicit Null(T &&...) noexcept {}
-    };
-
     class Storage;
 
     class DataContext {
@@ -136,6 +130,18 @@ public:
             return !empty();
     }
 
+    inline auto consume() const noexcept {
+        auto const output_offset = m_OutputOffset.load(std::memory_order::relaxed);
+        bool const found_sentinel = output_offset == m_SentinelRead.load(std::memory_order::relaxed);
+        if (found_sentinel) m_SentinelRead.store(NO_SENTINEL, std::memory_order::relaxed);
+
+        auto const data_cxt_offset =
+                align<std::byte, alignof(DataContext)>(m_Buffer + (found_sentinel ? 0 : output_offset)) - m_Buffer;
+        m_OutputOffset.store(data_cxt_offset, std::memory_order::relaxed);
+
+        return Buffer{this};
+    }
+
     template<typename F>
     inline decltype(auto) consume(F &&functor) const noexcept {
         auto const output_offset = m_OutputOffset.load(std::memory_order::acquire);
@@ -161,16 +167,32 @@ public:
         }
     }
 
-    inline auto consume() const noexcept {
-        auto const output_offset = m_OutputOffset.load(std::memory_order::relaxed);
-        bool const found_sentinel = output_offset == m_SentinelRead.load(std::memory_order::relaxed);
-        if (found_sentinel) m_SentinelRead.store(NO_SENTINEL, std::memory_order::relaxed);
+    template<typename F>
+    inline uint32_t consume_all(F &&functor) const noexcept {
+        auto output_offset = m_OutputOffset.load(std::memory_order::relaxed);
+        auto const input_offset = m_InputOffset.load(std::memory_order::acquire);
 
-        auto const data_cxt_offset =
-                align<std::byte, alignof(DataContext)>(m_Buffer + (found_sentinel ? 0 : output_offset)) - m_Buffer;
-        m_OutputOffset.store(data_cxt_offset, std::memory_order::relaxed);
+        uint32_t bytes_cousumed{0};
+        auto consume_and_forward = [this, &bytes_cousumed, &functor](uint32_t output_offset) {
+            auto const data_cxt = align<DataContext>(m_Buffer + output_offset);
+            auto const [buffer_data, buffer_size] = data_cxt->getBuffer();
+            bytes_cousumed += buffer_size;
+            std::forward<F>(functor)(buffer_data, buffer_size);
+            return data_cxt->getNextAddr() - m_Buffer;
+        };
 
-        return Buffer{this};
+        if (output_offset > input_offset) {
+            auto const sentinel = m_SentinelRead.exchange(NO_SENTINEL, std::memory_order::relaxed);
+            while (output_offset != sentinel) { output_offset = consume_and_forward(output_offset); }
+            output_offset = 0;
+        }
+
+        while (output_offset != input_offset) { output_offset = consume_and_forward(output_offset); }
+
+        m_OutputOffset.store(output_offset, std::memory_order::release);
+        if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order::release);
+
+        return bytes_cousumed;
     }
 
     inline std::pair<std::byte *, uint32_t> allocate(uint32_t buffer_size) noexcept {
@@ -249,7 +271,6 @@ private:
     }
 
     inline Storage __attribute__((always_inline)) getStorage(size_t size) noexcept {
-
         auto getAlignedStorage = [buffer_size{size}](void *buffer, size_t size) noexcept -> Storage {
             auto const dc_storage = std::align(alignof(DataContext), sizeof(DataContext), buffer, size);
             buffer = static_cast<std::byte *>(buffer) + sizeof(DataContext);
@@ -266,20 +287,26 @@ private:
                 return storage;
             }
 
-            if (output_offset)
+            if (output_offset) {
                 if (auto const storage = getAlignedStorage(m_Buffer, output_offset - 1)) {
                     m_SentinelRead.store(input_offset, std::memory_order::relaxed);
                     return storage;
                 }
+            }
 
+            return {};
         } else {
             return getAlignedStorage(m_Buffer + input_offset, output_offset - input_offset - 1);
         }
-
-        return {};
     }
 
 private:
+    class Null {
+    public:
+        template<typename... T>
+        explicit Null(T &&...) noexcept {}
+    };
+
     static constexpr uint32_t NO_SENTINEL{std::numeric_limits<uint32_t>::max()};
 
     std::atomic<uint32_t> m_InputOffset{0};
