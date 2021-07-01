@@ -65,7 +65,7 @@ private:
         inline explicit operator bool() const noexcept { return fp_ptr && obj_ptr; }
 
         template<typename Callable, typename... CArgs>
-        inline std::byte *construct_callable(CArgs &&...args) const noexcept {
+        inline std::byte *construct(CArgs &&...args) const noexcept {
             uint16_t const obj_offset = std::bit_cast<std::byte *>(obj_ptr) - std::bit_cast<std::byte *>(fp_ptr);
             new (fp_ptr)
                     FunctionContext{Type<Callable>{}, obj_offset, static_cast<uint16_t>(obj_offset + sizeof(Callable))};
@@ -171,7 +171,7 @@ public:
         }
 
         uint32_t const next_input_offset =
-                storage.template construct_callable<Callable>(std::forward<CArgs>(args)...) - m_Buffer;
+                storage.template construct<Callable>(std::forward<CArgs>(args)...) - m_Buffer;
 
         m_InputOffset.store(next_input_offset, std::memory_order::release);
 
