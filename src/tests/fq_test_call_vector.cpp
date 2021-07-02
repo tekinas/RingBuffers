@@ -107,7 +107,11 @@ void test(std::vector<Function<ComputeFunctionSig>> &vectorComputeQueue) noexcep
     {
         Timer timer{"std::vector of functions"};
 
-        for (auto &&function : vectorComputeQueue) { num = function(num); }
+        for (auto &function : vectorComputeQueue) {
+            num = function(num);
+            //function = {};
+        }
+        //vectorComputeQueue.clear();
     }
     fmt::print("result : {}\n\n", num);
 }
@@ -117,7 +121,11 @@ void test(std::vector<std::function<ComputeFunctionSig>> &vectorStdComputeQueue)
     {
         Timer timer{"std::vector of std functions"};
 
-        for (auto &&function : vectorStdComputeQueue) { num = function(num); }
+        for (auto &function : vectorStdComputeQueue) {
+            num = function(num);
+            //function = {};
+        }
+        //vectorStdComputeQueue.clear();
     }
     fmt::print("result : {}\n\n", num);
 }

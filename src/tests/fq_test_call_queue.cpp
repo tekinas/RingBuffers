@@ -105,7 +105,9 @@ void test(std::deque<Function<ComputeFunctionSig>> &computeDequeue) noexcept {
         Timer timer{"std::deque of functions"};
         for (auto end = computeDequeue.end(), begin = computeDequeue.begin(); begin != end; ++begin) {
             num = (*begin)(num);
+            //*begin = {};
         }
+        //computeDequeue.clear();
     }
     fmt::print("result : {}\n\n", num);
 }
@@ -116,7 +118,9 @@ void test(std::deque<std::function<ComputeFunctionSig>> &computeStdDequeue) noex
         Timer timer{"std::deque of std functions"};
         for (auto end = computeStdDequeue.end(), begin = computeStdDequeue.begin(); begin != end; ++begin) {
             num = (*begin)(num);
+            //*begin = {};
         }
+        //computeStdDequeue.clear();
     }
     fmt::print("result : {}\n\n", num);
 }
