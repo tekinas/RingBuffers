@@ -39,8 +39,9 @@ int main(int argc, char **argv) {
     ComputeFunctionQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
 
     size_t const compute_functors = [&] {
-        uint32_t functions{0};
         Timer timer{"function queue write time"};
+
+        uint32_t functions{0};
         bool addFunction = true;
         while (addFunction) {
             ++functions;

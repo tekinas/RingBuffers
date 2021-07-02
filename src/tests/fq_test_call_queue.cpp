@@ -37,18 +37,22 @@ int main(int argc, char **argv) {
     auto const rawQueueMem = std::make_unique<std::byte[]>(rawQueueMemSize);
     ComputeFunctionQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
 
+    size_t computeDequeueStorage{0}, computeStdDequeueStorage{0};
+
     size_t const compute_functors = [&] {
-        Timer timer{"function queue fill time"};
+        Timer timer{"function queue write time"};
+
+        uint32_t functions{0};
         bool addFunction = true;
         while (addFunction) {
+            ++functions;
             callbackGenerator.addCallback(
                     [&]<typename T>(T &&t) { addFunction = rawComputeQueue.push_back(std::forward<T>(t)); });
         }
+        --functions;
 
-        return rawComputeQueue.size();
+        return functions;
     }();
-
-    size_t computeDequeueStorage{0}, computeStdDequeueStorage{0};
 
     callbackGenerator.setSeed(seed);
     {

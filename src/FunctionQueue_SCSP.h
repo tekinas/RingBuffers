@@ -182,7 +182,7 @@ public:
 
 private:
     template<typename T>
-    static constexpr inline T *align(void *ptr) noexcept {
+    static constexpr inline T *align(void const *ptr) noexcept {
         return std::bit_cast<T *>((std::bit_cast<uintptr_t>(ptr) - 1u + alignof(T)) & -alignof(T));
     }
 
@@ -216,7 +216,7 @@ private:
         };
 
         if (input_offset == output_offset) return;
-        if (output_offset > input_offset) {
+        else if (output_offset > input_offset) {
             auto const sentinel = m_SentinelRead.load(std::memory_order::relaxed);
             while (output_offset != sentinel) { output_offset = destroyAndGetNext(output_offset); }
             output_offset = 0;
