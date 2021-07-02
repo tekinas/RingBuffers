@@ -94,7 +94,7 @@ void test(ComputeFunctionQueue &rawComputeQueue) noexcept {
     size_t num = 0;
     {
         Timer timer{"function queue"};
-        while (rawComputeQueue.reserve()) { num = rawComputeQueue.call_and_pop(num); }
+        while (!rawComputeQueue.empty()) { num = rawComputeQueue.call_and_pop(num); }
     }
     fmt::print("result : {}\n\n", num);
 }

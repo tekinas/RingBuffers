@@ -29,17 +29,17 @@ private:
         using InvokeAndDestroy = R (*)(void *obj_ptr, Args...) noexcept;
         using Destroy = void (*)(void *obj_ptr) noexcept;
 
-        inline auto getReadData() noexcept {
+        inline auto getReadData() const noexcept {
             return std::tuple{std::bit_cast<InvokeAndDestroy>(fp_offset + fp_base),
                               std::bit_cast<std::byte *>(this) + obj_offset, getNextAddr()};
         }
 
         template<typename = void>
-        requires(destroyNonInvoked) inline void destroyFO() noexcept {
+        requires(destroyNonInvoked) inline void destroyFO() const noexcept {
             std::bit_cast<Destroy>(destroyFp_offset + fp_base)(std::bit_cast<std::byte *>(this) + obj_offset);
         }
 
-        inline auto getNextAddr() noexcept { return std::bit_cast<std::byte *>(this) + stride; }
+        inline auto getNextAddr() const noexcept { return std::bit_cast<std::byte *>(this) + stride; }
 
     private:
         template<typename Callable>
@@ -105,8 +105,6 @@ public:
     ~FunctionQueue() noexcept {
         if constexpr (destroyNonInvoked) destroyAllFO();
     }
-
-    inline bool reserve() const noexcept { return !empty(); }
 
     inline bool empty() const noexcept { return m_InputOffset == m_OutputOffset; }
 
