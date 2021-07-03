@@ -1,5 +1,5 @@
-#ifndef FUNCTIONQUEUE_BUFFERQUEUE_MCSP_H
-#define FUNCTIONQUEUE_BUFFERQUEUE_MCSP_H
+#ifndef BUFFERQUEUE_MCSP
+#define BUFFERQUEUE_MCSP
 
 #include <atomic>
 #include <bit>
