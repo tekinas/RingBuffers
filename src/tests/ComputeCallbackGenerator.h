@@ -1,5 +1,5 @@
-#ifndef FUNCTIONQUEUE_COMPUTECALLBACKGENERATOR_H
-#define FUNCTIONQUEUE_COMPUTECALLBACKGENERATOR_H
+#ifndef COMPUTECALLBACKGENERATOR
+#define COMPUTECALLBACKGENERATOR
 
 #include "util.h"
 #include <boost/container_hash/hash.hpp>
@@ -31,7 +31,7 @@ private:
 
 public:
     explicit ComputeFunctor(Random<std::mt19937_64> &rng) noexcept {
-        rng.fillRand<size_t>(0, std::numeric_limits<size_t>::max(), std::begin(data), std::end(data));
+        rng.setRand<size_t>(0, std::numeric_limits<size_t>::max(), std::span{data});
     }
 
     size_t operator()(size_t num) const {
@@ -48,8 +48,8 @@ private:
 
 public:
     explicit ComputeFunctor2(Random<std::mt19937_64> &rng) {
-        rng.fillRand<size_t>(0, std::numeric_limits<size_t>::max(), std::begin(data), std::end(data));
-        rng.fillRand<uint16_t>(0, std::numeric_limits<uint16_t>::max(), std::begin(data2), std::end(data2));
+        rng.setRand<size_t>(0, std::numeric_limits<size_t>::max(), std::span{data});
+        rng.setRand<uint16_t>(0, std::numeric_limits<uint16_t>::max(), std::span{data2});
     }
 
     size_t operator()(size_t num) const {
@@ -154,4 +154,4 @@ public:
     }
 };
 
-#endif//FUNCTIONQUEUE_COMPUTECALLBACKGENERATOR_H
+#endif

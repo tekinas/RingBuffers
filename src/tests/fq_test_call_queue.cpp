@@ -23,8 +23,8 @@ size_t *bytes_allocated = nullptr;
 int main(int argc, char **argv) {
     if (argc == 1) { fmt::print("usage : ./fq_test_call_and_pop <buffer_size> <seed>\n"); }
 
-    size_t const rawQueueMemSize = [&] { return (argc >= 2) ? atof(argv[1]) : 500.0; }() * 1024 * 1024;
-    fmt::print("buffer size : {}\n", rawQueueMemSize);
+    size_t const functionBufferSize = [&] { return (argc >= 2) ? atof(argv[1]) : 500.0; }() * 1024 * 1024;
+    fmt::print("buffer size : {}\n", functionBufferSize);
 
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
     fmt::print("seed : {}\n", seed);
@@ -34,8 +34,8 @@ int main(int argc, char **argv) {
 
     CallbackGenerator callbackGenerator{seed};
 
-    auto const rawQueueMem = std::make_unique<std::byte[]>(rawQueueMemSize);
-    ComputeFunctionQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
+    auto const functionBuffer = std::make_unique<std::byte[]>(functionBufferSize);
+    ComputeFunctionQueue functionQueue{functionBuffer.get(), functionBufferSize};
 
     size_t computeDequeueStorage{0}, computeStdDequeueStorage{0};
 
@@ -47,7 +47,7 @@ int main(int argc, char **argv) {
         while (addFunction) {
             ++functions;
             callbackGenerator.addCallback(
-                    [&]<typename T>(T &&t) { addFunction = rawComputeQueue.push_back(std::forward<T>(t)); });
+                    [&]<typename T>(T &&t) { addFunction = functionQueue.push_back(std::forward<T>(t)); });
         }
         --functions;
 
@@ -77,24 +77,24 @@ int main(int argc, char **argv) {
 
     fmt::print("\ncompute functions : {}\n", compute_functors);
     constexpr double ONE_MiB = 1024.0 * 1024.0;
-    fmt::print("function queue storage : {} MiB\n", rawQueueMemSize / ONE_MiB);
-    fmt::print("std::dequeue<folly::Function> storage : {} MiB\n", computeDequeueStorage / ONE_MiB);
-    fmt::print("std::dequeue<std::function> storage : {} MiB\n\n", computeStdDequeueStorage / ONE_MiB);
+    fmt::print("function queue memory : {} MiB\n", functionBufferSize / ONE_MiB);
+    fmt::print("std::dequeue<folly::Function> memory : {} MiB\n", computeDequeueStorage / ONE_MiB);
+    fmt::print("std::dequeue<std::function> memory : {} MiB\n\n", computeStdDequeueStorage / ONE_MiB);
 
     void test(ComputeFunctionQueue &) noexcept;
     void test(std::deque<Function<ComputeFunctionSig>> &) noexcept;
     void test(std::deque<std::function<ComputeFunctionSig>> &) noexcept;
 
-    test(rawComputeQueue);
+    test(functionQueue);
     test(computeDequeue);
     test(computeStdDequeue);
 }
 
-void test(ComputeFunctionQueue &rawComputeQueue) noexcept {
+void test(ComputeFunctionQueue &functionQueue) noexcept {
     size_t num = 0;
     {
         Timer timer{"function queue"};
-        while (!rawComputeQueue.empty()) { num = rawComputeQueue.call_and_pop(num); }
+        while (!functionQueue.empty()) { num = functionQueue.call_and_pop(num); }
     }
     fmt::print("result : {}\n\n", num);
 }

@@ -7,6 +7,18 @@
 #include <memory>
 #include <utility>
 
+#if defined(_MSC_VER)
+
+#define FORCE_INLINE __forceinline
+#define NEVER_INLINE __declspec(noinline)
+
+#else
+
+#define FORCE_INLINE inline __attribute__((always_inline))
+#define NEVER_INLINE __attribute__((noinline))
+
+#endif
+
 template<typename T, bool destroyNonInvoked = true>
 class FunctionQueue {};
 
@@ -29,17 +41,17 @@ private:
         using InvokeAndDestroy = R (*)(void *obj_ptr, Args...) noexcept;
         using Destroy = void (*)(void *obj_ptr) noexcept;
 
-        inline auto getReadData() const noexcept {
+        auto getReadData() const noexcept {
             return std::tuple{std::bit_cast<InvokeAndDestroy>(fp_offset + fp_base),
                               std::bit_cast<std::byte *>(this) + obj_offset, getNextAddr()};
         }
 
         template<typename = void>
-        requires(destroyNonInvoked) inline void destroyFO() const noexcept {
+        requires(destroyNonInvoked) void destroyFO() const noexcept {
             std::bit_cast<Destroy>(destroyFp_offset + fp_base)(std::bit_cast<std::byte *>(this) + obj_offset);
         }
 
-        inline auto getNextAddr() const noexcept { return std::bit_cast<std::byte *>(this) + stride; }
+        std::byte *getNextAddr() const noexcept { return std::bit_cast<std::byte *>(this) + stride; }
 
     private:
         template<typename Callable>
@@ -60,10 +72,10 @@ private:
     public:
         Storage() noexcept = default;
 
-        inline explicit operator bool() const noexcept { return fp_ptr && obj_ptr; }
+        explicit operator bool() const noexcept { return fp_ptr && obj_ptr; }
 
         template<typename Callable, typename... CArgs>
-        inline std::byte *construct(CArgs &&...args) const noexcept {
+        std::byte *construct(CArgs &&...args) const noexcept {
             uint16_t const obj_offset = std::bit_cast<std::byte *>(obj_ptr) - std::bit_cast<std::byte *>(fp_ptr);
             new (fp_ptr)
                     FunctionContext{Type<Callable>{}, obj_offset, static_cast<uint16_t>(obj_offset + sizeof(Callable))};
@@ -92,7 +104,7 @@ public:
     FunctionQueue(std::byte *memory, std::size_t size) noexcept
         : m_Buffer{memory}, m_BufferSize{static_cast<uint32_t>(size)} {}
 
-    inline auto buffer_size() const noexcept { return m_BufferSize; }
+    uint32_t buffer_size() const noexcept { return m_BufferSize; }
 
     void clear() noexcept {
         if constexpr (destroyNonInvoked) destroyAllFO();
@@ -106,9 +118,9 @@ public:
         if constexpr (destroyNonInvoked) destroyAllFO();
     }
 
-    inline bool empty() const noexcept { return m_InputOffset == m_OutputOffset; }
+    bool empty() const noexcept { return m_InputOffset == m_OutputOffset; }
 
-    inline R call_and_pop(Args... args) const noexcept {
+    FORCE_INLINE R call_and_pop(Args... args) const noexcept {
         auto const output_offset = m_OutputOffset;
         bool const found_sentinel = output_offset == m_SentinelRead;
         if (found_sentinel) { m_SentinelRead = NO_SENTINEL; }
@@ -128,13 +140,13 @@ public:
     }
 
     template<typename T>
-    inline bool push_back(T &&function) noexcept {
+    bool push_back(T &&function) noexcept {
         using Callable = std::decay_t<T>;
         return emplace_back<Callable>(std::forward<T>(function));
     }
 
     template<typename Callable, typename... CArgs>
-    inline bool emplace_back(CArgs &&...args) noexcept {
+    bool emplace_back(CArgs &&...args) noexcept {
         auto const storage = getStorage(alignof(Callable), sizeof(Callable));
         if (!storage) return false;
 
@@ -148,7 +160,7 @@ public:
 
 private:
     template<typename T>
-    static constexpr inline T *align(void const *ptr) noexcept {
+    static constexpr T *align(void const *ptr) noexcept {
         return std::bit_cast<T *>((std::bit_cast<uintptr_t>(ptr) - 1u + alignof(T)) & -alignof(T));
     }
 
@@ -191,7 +203,7 @@ private:
         while (output_offset != input_offset) { output_offset = destroyAndGetNext(output_offset); }
     }
 
-    inline Storage __attribute__((always_inline)) getStorage(size_t obj_align, size_t const obj_size) noexcept {
+    FORCE_INLINE Storage getStorage(size_t obj_align, size_t const obj_size) noexcept {
         auto const input_offset = m_InputOffset;
         auto const output_offset = m_OutputOffset;
 

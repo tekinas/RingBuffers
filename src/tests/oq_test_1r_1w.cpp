@@ -1,4 +1,6 @@
+#include "../BufferQueue_MCSP.h"
 #include "../BufferQueue_SCSP.h"
+#include "../FunctionQueue_MCSP.h"
 #include "../FunctionQueue_SCSP.h"
 #include "../ObjectQueue_MCSP.h"
 #include "../ObjectQueue_SCSP.h"
@@ -9,7 +11,9 @@
 #include <boost/container_hash/hash.hpp>
 #include <boost/lockfree/spsc_queue.hpp>
 #include <deque>
+#include <limits>
 #include <span>
+#include <type_traits>
 
 #define FMT_HEADER_ONLY
 #include <fmt/format.h>
@@ -17,6 +21,7 @@
 #include <thread>
 
 using util::Random;
+using util::StartFlag;
 using util::Timer;
 
 struct Obj {
@@ -27,8 +32,9 @@ struct Obj {
     Obj() noexcept = default;
 
     explicit Obj(Random<> &rng) noexcept
-        : a{rng.getRand<uint64_t>(1, 835454325463)}, b{rng.getRand<float>(-1.13242424f, 788978.0f)},
-          c{rng.getRand<uint32_t>(0, 99999 + 0b10101010101)} {}
+        : a{rng.getRand<uint64_t>(std::numeric_limits<uint64_t>::min() + 1, std::numeric_limits<uint64_t>::max())},
+          b{rng.getRand<float>(std::numeric_limits<float>::min(), std::numeric_limits<float>::max())},
+          c{rng.getRand<uint32_t>(std::numeric_limits<uint32_t>::min(), std::numeric_limits<uint32_t>::max())} {}
 
     void operator()(size_t &seed) const noexcept {
         boost::hash_combine(seed, a);
@@ -38,26 +44,27 @@ struct Obj {
 };
 
 bool OQ_IsObjectFree(Obj *ptr) noexcept {
-    return reinterpret_cast<std::atomic<uint64_t> &>(ptr->a).load(std::memory_order_acquire) == 0;
+    return std::bit_cast<std::atomic<uint64_t> *>(&std::launder(ptr)->a)->load(std::memory_order_acquire) == 0;
 }
 
 void OQ_FreeObject(Obj *ptr) noexcept {
-    reinterpret_cast<std::atomic<uint64_t> &>(ptr->a).store(0, std::memory_order_release);
+    std::bit_cast<std::atomic<uint64_t> *>(&std::launder(ptr)->a)->store(0, std::memory_order_release);
 }
 
 using boost_queue = boost::lockfree::spsc_queue<Obj>;
 using ObjectQueueSCSP = ObjectQueue_SCSP<Obj, false, false>;
 using ObjectQueueMCSP = ObjectQueue_MCSP<Obj, false>;
-using FunctionQueue = FunctionQueue_SCSP<void(size_t &), false, false>;
+using FunctionQueueSCSP = FunctionQueue_SCSP<void(size_t &), false, false, false>;
+using FunctionQueueMCSP = FunctionQueue_MCSP<void(size_t &), false, false>;
 using BufferQueueSCSP = BufferQueue_SCSP<false, false, alignof(Obj)>;
+using BufferQueueMCSP = BufferQueue_MCSP<false, alignof(Obj)>;
 
 void test(boost_queue &objectQueue, uint32_t objects, size_t seed) noexcept {
     auto rng = Random<>{seed};
-    auto spawn_read_thread = std::atomic_flag{};
+    StartFlag start_flag;
 
-    std::jthread writer{[&objectQueue, &rng, &spawn_read_thread, objects]() mutable {
-        spawn_read_thread.test_and_set(std::memory_order_relaxed);
-        spawn_read_thread.notify_one();
+    std::jthread writer{[&objectQueue, &rng, &start_flag, objects]() mutable {
+        start_flag.wait();
 
         auto obj = objects;
         while (obj--) {
@@ -66,43 +73,40 @@ void test(boost_queue &objectQueue, uint32_t objects, size_t seed) noexcept {
         }
     }};
 
-    spawn_read_thread.wait(false, std::memory_order::relaxed);
+    std::jthread reader{[&objectQueue, &start_flag, objects] {
+        start_flag.wait();
 
-    std::jthread reader{[&objectQueue, objects] {
-        Timer timer{"read time "};
-
-        auto obj = objects;
         size_t seed{0};
-        while (obj) {
-            while (objectQueue.empty()) std::this_thread::yield();
-            obj -= objectQueue.consume_all([&](Obj const &obj) { obj(seed); });
+        {
+            Timer timer{"read time "};
+
+            auto obj = objects;
+            while (obj) {
+                while (objectQueue.empty()) std::this_thread::yield();
+                obj -= objectQueue.consume_all([&](Obj const &obj) { obj(seed); });
+            }
         }
 
         fmt::print("hash of {} objects : {}\n", objects, seed);
     }};
+
+    start_flag.start();
 }
 
-void test(auto &objectQueue, uint32_t objects, size_t seed) noexcept {
+template<typename ObjectQueue>
+requires std::same_as<std::remove_cv_t<ObjectQueue>, ObjectQueueSCSP> ||
+        std::same_as<std::remove_cv_t<ObjectQueue>, ObjectQueueMCSP>
+void test(ObjectQueue &objectQueue, uint32_t objects, size_t seed) noexcept {
     auto rng = Random<>{seed};
-    auto spawn_read_thread = std::atomic_flag{};
+    StartFlag start_flag;
 
-    std::jthread writer{[&objectQueue, &rng, &spawn_read_thread, objects]() mutable {
-        spawn_read_thread.test_and_set(std::memory_order_relaxed);
-        spawn_read_thread.notify_one();
+    std::jthread writer{[&objectQueue, &rng, &start_flag, objects]() mutable {
+        start_flag.wait();
 
         auto obj = objects;
         while (obj) {
-            /*Obj o{rng};
-                    while (!objectQueue.push_back(o)) std::this_thread::yield();
-       --obj;
-       */
-
-            /*while (!objectQueue.emplace_back(rng))
-          std::this_thread::yield();
-      --obj;*/
-
             uint32_t emplaced;
-            while (!(emplaced = objectQueue.emplace_back_n([&, obj](Obj *obj_ptr, uint32_t count) {
+            while (!(emplaced = objectQueue.emplace_back_n([&rng, obj](Obj *obj_ptr, uint32_t count) {
                 auto const to_construct = std::min(obj, count);
                 for (uint32_t i = 0; i != to_construct; ++i) { std::construct_at(obj_ptr + i, rng); }
                 return to_construct;
@@ -112,70 +116,101 @@ void test(auto &objectQueue, uint32_t objects, size_t seed) noexcept {
         }
     }};
 
-    spawn_read_thread.wait(false, std::memory_order::relaxed);
+    std::jthread reader{[&objectQueue, &start_flag, objects] {
+        start_flag.wait();
 
-    std::jthread reader{[&objectQueue, objects] {
-        Timer timer{"read time "};
-
-        auto obj = objects;
         size_t seed{0};
-        while (obj) {
-            auto consumed = objectQueue.consume_all([&](Obj const &obj) { obj(seed); });
-            if (consumed) obj -= consumed;
-            else
-                std::this_thread::yield();
+        {
+            Timer timer{"read time "};
+
+            auto obj = objects;
+            while (obj) {
+                if constexpr (std::is_same_v<std::remove_cvref_t<ObjectQueue>, ObjectQueueSCSP>) {
+                    while (!objectQueue.reserve()) std::this_thread::yield();
+                    auto const consumed = objectQueue.consume_all([&](Obj const &obj) { obj(seed); });
+                    obj -= consumed;
+                } else {
+                    /*auto const consumed = objectQueue.consume_all([&](Obj const &obj) { obj(seed); });
+                    if (consumed) obj -= consumed;
+                    else
+                        std::this_thread::yield();*/
+                    if (auto ptr = objectQueue.consume()) {
+                        (*ptr)(seed);
+                        --obj;
+                    } else
+                        std::this_thread::yield();
+                }
+            }
         }
 
         fmt::print("hash of {} objects : {}\n", objects, seed);
     }};
+
+    start_flag.start();
 }
 
+template<typename FunctionQueue>
+requires std::same_as<std::remove_cv_t<FunctionQueue>, FunctionQueueSCSP> ||
+        std::same_as<std::remove_cv_t<FunctionQueue>, FunctionQueueMCSP>
 void test(FunctionQueue &functionQueue, uint32_t objects, size_t seed) noexcept {
     auto rng = Random<>{seed};
-    auto spawn_read_thread = std::atomic_flag{};
+    StartFlag start_flag;
 
-    std::jthread writer{[&functionQueue, &rng, &spawn_read_thread, objects]() mutable {
-        spawn_read_thread.test_and_set(std::memory_order_relaxed);
-        spawn_read_thread.notify_one();
+    std::jthread writer{[&functionQueue, &rng, &start_flag, objects]() mutable {
+        start_flag.wait();
 
         auto obj = objects;
         while (obj) {
-            while (!functionQueue.emplace_back<Obj>(rng)) std::this_thread::yield();
+            while (!functionQueue.template emplace_back<Obj>(rng)) std::this_thread::yield();
             --obj;
         }
     }};
 
-    spawn_read_thread.wait(false, std::memory_order::relaxed);
+    std::jthread reader{[&functionQueue, &start_flag, objects] {
+        start_flag.wait();
 
-    std::jthread reader{[&functionQueue, objects] {
-        Timer timer{"read time "};
-
-        auto obj = objects;
         size_t seed{0};
-        while (obj) {
-            while (!functionQueue.reserve()) std::this_thread::yield();
-            functionQueue.call_and_pop(seed);
-            --obj;
+        {
+            Timer timer{"read time "};
+
+            auto obj = objects;
+            while (obj) {
+                if constexpr (std::is_same_v<std::remove_cvref_t<FunctionQueue>, FunctionQueueSCSP>) {
+                    while (!functionQueue.reserve()) std::this_thread::yield();
+                    functionQueue.call_and_pop(seed);
+                    --obj;
+                } else {
+                    if (auto handle = functionQueue.get_function_handle()) {
+                        handle.call_and_pop(seed);
+                        --obj;
+                    } else
+                        std::this_thread::yield();
+                }
+            }
         }
 
         fmt::print("hash of {} objects : {}\n", objects, seed);
     }};
+
+    start_flag.start();
 }
 
-void test(BufferQueueSCSP &bufferQueue, uint32_t objects, size_t seed) noexcept {
+template<typename BufferQueue>
+requires std::same_as<std::remove_cv_t<BufferQueue>, BufferQueueSCSP> ||
+        std::same_as<std::remove_cv_t<BufferQueue>, BufferQueueMCSP>
+void test(BufferQueue &bufferQueue, uint32_t objects, size_t seed) noexcept {
     auto rng = Random<>{seed};
-    auto spawn_read_thread = std::atomic_flag{};
+    StartFlag start_flag;
 
-    std::jthread writer{[&bufferQueue, &rng, &spawn_read_thread, objects]() mutable {
-        spawn_read_thread.test_and_set(std::memory_order_relaxed);
-        spawn_read_thread.notify_one();
+    std::jthread writer{[&bufferQueue, &rng, &start_flag, objects]() mutable {
+        start_flag.wait();
 
         auto obj = objects;
         while (obj) {
             uint32_t emplaced{0};
-            bufferQueue.allocate_and_release(sizeof(Obj), [&](std::byte *buffer, uint32_t avl_size) noexcept {
-                emplaced = std::min(avl_size / sizeof(Obj), size_t{obj});
-                auto base_addr = std::bit_cast<Obj *>(buffer);
+            bufferQueue.allocate_and_release(sizeof(Obj), [&](std::span<std::byte> buffer) noexcept {
+                emplaced = std::min(buffer.size() / sizeof(Obj), size_t{obj});
+                auto base_addr = std::bit_cast<Obj *>(buffer.data());
                 auto const end = base_addr + emplaced;
                 for (; base_addr != end; ++base_addr) std::construct_at(base_addr, rng);
 
@@ -188,24 +223,40 @@ void test(BufferQueueSCSP &bufferQueue, uint32_t objects, size_t seed) noexcept 
         }
     }};
 
-    spawn_read_thread.wait(false, std::memory_order::relaxed);
+    std::jthread reader{[&bufferQueue, &start_flag, objects] {
+        start_flag.wait();
 
-    std::jthread reader{[&bufferQueue, objects] {
-        Timer timer{"read time "};
-
-        auto obj = objects;
         size_t seed{0};
-        while (obj) {
-            while (!bufferQueue.reserve()) std::this_thread::yield();
-            auto const bytes_cousumed = bufferQueue.consume_all([&](std::byte *buffer, uint32_t size) {
-                std::span span{std::bit_cast<Obj *>(buffer), size / sizeof(Obj)};
-                for (auto &object : span) object(seed);
-                obj -= span.size();
-            });
+        {
+            Timer timer{"read time "};
+
+            auto obj = objects;
+            while (obj) {
+                if constexpr (std::is_same_v<std::remove_cvref_t<BufferQueue>, BufferQueueSCSP>) {
+                    while (!bufferQueue.reserve()) std::this_thread::yield();
+                    auto const bytes_cousumed = bufferQueue.consume_all([&](std::span<std::byte> buffer) {
+                        auto const obj_span =
+                                std::span{std::bit_cast<Obj *>(buffer.data()), buffer.size() / sizeof(Obj)};
+                        for (auto &object : obj_span) object(seed);
+                        obj -= obj_span.size();
+                    });
+                } else {
+                    if (auto data_buffer = bufferQueue.consume()) {
+                        auto const buffer = data_buffer.get();
+                        auto const obj_span =
+                                std::span{std::bit_cast<Obj *>(buffer.data()), buffer.size() / sizeof(Obj)};
+                        for (auto &object : obj_span) object(seed);
+                        obj -= obj_span.size();
+                    } else
+                        std::this_thread::yield();
+                }
+            }
         }
 
         fmt::print("hash of {} objects : {}\n", objects, seed);
     }};
+
+    start_flag.start();
 }
 
 int main(int argc, char **argv) {
@@ -241,14 +292,26 @@ int main(int argc, char **argv) {
     }
 
     {
-        fmt::print("\nfunction queue test ...\n");
-        FunctionQueue funtionQueue{reinterpret_cast<std::byte *>(buffer.get()), sizeof(Obj) * capacity};
+        fmt::print("\nbuffer queue scsp test ...\n");
+        BufferQueueSCSP bufferQueue{reinterpret_cast<std::byte *>(buffer.get()), sizeof(Obj) * capacity};
+        test(bufferQueue, objects, seed);
+    }
+
+    {
+        fmt::print("\nbuffer queue mcsp test ...\n");
+        BufferQueueMCSP bufferQueue{reinterpret_cast<std::byte *>(buffer.get()), sizeof(Obj) * capacity};
+        test(bufferQueue, objects, seed);
+    }
+
+    {
+        fmt::print("\nfunction queue scsp test ...\n");
+        FunctionQueueSCSP funtionQueue{reinterpret_cast<std::byte *>(buffer.get()), sizeof(Obj) * capacity};
         test(funtionQueue, objects, seed);
     }
 
     {
-        fmt::print("\nbuffer queue test ...\n");
-        BufferQueueSCSP bufferQueue{reinterpret_cast<std::byte *>(buffer.get()), sizeof(Obj) * capacity};
-        test(bufferQueue, objects, seed);
+        fmt::print("\nfunction queue mcsp test ...\n");
+        FunctionQueueMCSP funtionQueue{reinterpret_cast<std::byte *>(buffer.get()), sizeof(Obj) * capacity};
+        test(funtionQueue, objects, seed);
     }
 }

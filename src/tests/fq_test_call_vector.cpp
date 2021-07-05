@@ -24,8 +24,8 @@ size_t *bytes_allocated = nullptr;
 int main(int argc, char **argv) {
     if (argc == 1) { fmt::print("usage : ./fq_test_call_only <buffer_size> <seed>\n"); }
 
-    size_t const rawQueueMemSize = [&] { return (argc >= 2) ? atof(argv[1]) : 500.0; }() * 1024 * 1024;
-    fmt::print("buffer size : {}\n", rawQueueMemSize);
+    size_t const functionQueueBufferSize = [&] { return (argc >= 2) ? atof(argv[1]) : 500.0; }() * 1024 * 1024;
+    fmt::print("buffer size : {}\n", functionQueueBufferSize);
 
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
     fmt::print("seed : {}\n", seed);
@@ -35,8 +35,8 @@ int main(int argc, char **argv) {
 
     CallbackGenerator callbackGenerator{seed};
 
-    auto const rawQueueMem = std::make_unique<std::byte[]>(rawQueueMemSize);
-    ComputeFunctionQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
+    auto const functionQueueBuffer = std::make_unique<std::byte[]>(functionQueueBufferSize);
+    ComputeFunctionQueue functionQueue{functionQueueBuffer.get(), functionQueueBufferSize};
 
     size_t const compute_functors = [&] {
         Timer timer{"function queue write time"};
@@ -46,7 +46,7 @@ int main(int argc, char **argv) {
         while (addFunction) {
             ++functions;
             callbackGenerator.addCallback(
-                    [&]<typename T>(T &&t) { addFunction = rawComputeQueue.push_back(std::forward<T>(t)); });
+                    [&]<typename T>(T &&t) { addFunction = functionQueue.push_back(std::forward<T>(t)); });
         }
         --functions;
 
@@ -78,26 +78,26 @@ int main(int argc, char **argv) {
         }
     }
 
-    fmt::print("\ncompute functions : {}\n ", compute_functors);
+    fmt::print("\ncompute functions : {}\n", compute_functors);
     constexpr double ONE_MiB = 1024.0 * 1024.0;
-    fmt::print("function queue storage : {} MiB\n", rawQueueMemSize / ONE_MiB);
-    fmt::print("std::vector<folly::Function> storage : {} MiB\n", computeVectorStorage / ONE_MiB);
-    fmt::print("std::vector<std::function> storage : {} MiB\n\n", computeStdVectorStorage / ONE_MiB);
+    fmt::print("function queue memory : {} MiB\n", functionQueueBufferSize / ONE_MiB);
+    fmt::print("std::vector<folly::Function> memory : {} MiB\n", computeVectorStorage / ONE_MiB);
+    fmt::print("std::vector<std::function> memory : {} MiB\n\n", computeStdVectorStorage / ONE_MiB);
 
     void test(ComputeFunctionQueue &) noexcept;
     void test(std::vector<Function<ComputeFunctionSig>> &) noexcept;
     void test(std::vector<std::function<ComputeFunctionSig>> &) noexcept;
 
-    test(rawComputeQueue);
+    test(functionQueue);
     test(computeVector);
     test(computeStdVector);
 }
 
-void test(ComputeFunctionQueue &rawComputeQueue) noexcept {
+void test(ComputeFunctionQueue &functionQueue) noexcept {
     size_t num = 0;
     {
         Timer timer{"function queue"};
-        while (!rawComputeQueue.empty()) { num = rawComputeQueue.call_and_pop(num); }
+        while (!functionQueue.empty()) { num = functionQueue.call_and_pop(num); }
     }
     fmt::print("result : {}\n\n", num);
 }

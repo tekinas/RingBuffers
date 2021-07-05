@@ -1,11 +1,12 @@
 #include "ComputeCallbackGenerator.h"
 #include "util.h"
-
 #include <thread>
 
 #define BOOST_NO_EXCEPTIONS
-
 #include <boost/asio.hpp>
+
+#define FMT_HEADER_ONLY
+#include <fmt/format.h>
 
 using namespace util;
 
@@ -21,7 +22,7 @@ private:
     Timer timer;
 
 public:
-    explicit ComputeCxt(size_t seed, size_t num_functions, std::string_view timer_str)
+    explicit ComputeCxt(size_t seed, size_t num_functions, std::string const &timer_str)
         : num_functions{num_functions}, callbackGenerator{seed}, timer{timer_str} {}
 
     static void addComputeTask(std::unique_ptr<ComputeCxt> computeCxt, ComputeFunctionQueue *functionQueue) noexcept {
@@ -30,12 +31,12 @@ public:
                 [computeCxt{std::move(computeCxt)}, functionQueue]<typename T>(T &&t) mutable {
                     auto compute = [computeCxt{std::move(computeCxt)}, t{std::forward<T>(t)}, functionQueue]() mutable {
                         computeCxt->num = t(computeCxt->num);
-                        //                        std::cout << computeCxt->num << '\n';
+                        //fmt::print("{}\n", computeCxt->num);
 
                         if (++computeCxt->func != computeCxt->num_functions)
                             ComputeCxt::addComputeTask(std::move(computeCxt), functionQueue);
                         else
-                            println("result :", computeCxt->num);
+                            fmt::print("result : {}\n", computeCxt->num);
                     };
 
                     boost::asio::post(*functionQueue, std::move(compute));
@@ -45,27 +46,27 @@ public:
 
 int main(int argc, char **argv) {
     if (argc == 1) {
-        println("usage : ./fq_test_nr_nw_asio <buffer_size> <seed> <functions> "
-                "<threads> <compute_chains>");
+        fmt::print("usage : ./fq_test_nr_nw_asio <buffer_size> <seed> <functions> "
+                   "<threads> <compute_chains>\n");
     }
 
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
-    println("using seed :", seed);
+    fmt::print("seed : {}\n", seed);
 
     size_t const functions = [&] { return (argc >= 4) ? atol(argv[3]) : 12639182; }();
-    println("total functions :", functions);
+    fmt::print("functions : {}\n", functions);
 
     size_t const num_threads = [&] { return (argc >= 5) ? atol(argv[4]) : std::thread::hardware_concurrency(); }();
-    println("total num_threads :", num_threads);
+    fmt::print("threads : {}\n", num_threads);
 
     size_t const compute_chains = [&] { return (argc >= 6) ? atol(argv[5]) : std::thread::hardware_concurrency(); }();
-    println("total compute chains :", compute_chains);
+    fmt::print("compute chains : {}\n", compute_chains);
 
     ComputeFunctionQueue rawComputeQueue;
 
     for (auto t = compute_chains; t--;)
         ComputeCxt::addComputeTask(
-                std::make_unique<ComputeCxt>(seed, functions, "compute chain " + std::to_string(t + 1)),
+                std::make_unique<ComputeCxt>(seed, functions, fmt::format("compute chain {}", std::to_string(t + 1))),
                 &rawComputeQueue);
 
     std::vector<std::jthread> threads;
@@ -74,4 +75,4 @@ int main(int argc, char **argv) {
 
 #include <boost/throw_exception.hpp>
 
-void boost::throw_exception(std::exception const &e) {}
+void boost::throw_exception(std::exception const &e) { std::terminate(); }

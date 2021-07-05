@@ -1,126 +1,73 @@
-#ifndef CPP_TEST_UTIL_H
-#define CPP_TEST_UTIL_H
+#ifndef UTIL
+#define UTIL
+
+#include <atomic>
+#include <concepts>
+#include <condition_variable>
+#include <memory_resource>
+#include <random>
+#include <span>
+#include <type_traits>
+
+#define FMT_HEADER_ONLY
+#include <fmt/format.h>
 
 #include "uniform_distribution.h"
 
-#include <condition_variable>
-#include <iostream>
-#include <memory_resource>
-#include <mutex>
-#include <random>
-
 namespace util {
-
-    inline std::mutex _cout_mutex;
-
-    template<typename... T>
-    void print(T &&...t) {
-        std::scoped_lock _cout_lock{_cout_mutex};
-        (std::cout << ... << std::forward<T>(t));
-    }
-
-    template<typename... T>
-    void println(T &&...t) {
-        print(std::forward<T>(t)..., '\n');
-    }
-
-    template<typename... Types>
-    void print_error(Types &&...args) {
-        std::cerr << "ERROR :";
-        (std::cerr << ... << std::forward<Types>(args)) << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
-
-    template<size_t count, typename T, std::enable_if_t<std::is_invocable_v<T>, int> = 0>
-    void repeat(T &&t) {
-        for (size_t i = 0; i != count; ++i) { std::forward<T>(t)(); }
-    }
-
-    template<size_t count, typename T, std::enable_if_t<std::is_invocable_v<T, size_t>, int> = 0>
-    void repeat(T &&t) {
-        for (size_t i = 0; i != count; ++i) { std::forward<T>(t)(i); }
-    }
-
-    template<typename T, std::enable_if_t<std::is_invocable_v<T>, int> = 0>
-    void repeat(size_t count, T &&t) {
-        for (size_t i = 0; i != count; ++i) { std::forward<T>(t)(); }
-    }
-
-    template<typename T, std::enable_if_t<std::is_invocable_v<T, size_t>, int> = 0>
-    void repeat(size_t count, T &&t) {
-        for (size_t i = 0; i != count; ++i) { std::forward<T>(t)(i); }
-    }
-
-
     template<typename RNG_Type = std::mt19937_64>
     class Random {
-    private:
-        RNG_Type rng;
-
     public:
         Random() : rng{std::random_device{}()} {}
 
-        template<typename T>
-        Random(T t) : rng{t} {
-            static_assert(std::is_integral_v<T>);
-        }
+        template<std::integral T>
+        Random(T t) : rng{t} {}
 
-        template<typename T>
+        template<std::integral T>
         void setSeed(T t) {
-            static_assert(std::is_integral_v<T>);
             rng.seed(t);
         }
 
-        template<typename T = float>
+        template<std::floating_point T = float>
         T getRand() {
             return util::uniform_real_distribution<T>{T{0.0}, T{1.0}}(rng);
         }
 
         template<typename T>
-        T getRand(T lower, T upper) {
+        requires std::integral<T> || std::floating_point<T> T getRand(T lower, T upper) {
             if constexpr (std::is_integral_v<T>) {
                 return util::uniform_int_distribution<T>{lower, upper}(rng);
             } else if constexpr (std::is_floating_point_v<T>) {
                 return util::uniform_real_distribution<T>{lower, upper}(rng);
-            } else {
-                static_assert(std::is_integral<T>::value | std::is_floating_point<T>::value,
-                              "T is neither integral result_type nor floating point result_type.");
             }
+        }
+
+        template<typename T, typename Container>
+        requires std::integral<T> || std::floating_point<T>
+        void addRand(T lower, T upper, uint64_t num, std::back_insert_iterator<Container> it) {
+            auto dist = std::conditional_t<std::is_integral_v<T>, util::uniform_int_distribution<T>,
+                                           util::uniform_real_distribution<T>>{lower, upper};
+            while (num--) { it = dist(rng); }
+        }
+
+        template<typename T, typename Container>
+        requires std::integral<T> || std::floating_point<T>
+        void addRand(T lower, T upper, uint64_t num, std::insert_iterator<Container> it) {
+            auto dist = std::conditional_t<std::is_integral_v<T>, util::uniform_int_distribution<T>,
+                                           util::uniform_real_distribution<T>>{lower, upper};
+            while (num--) { it = dist(rng); }
         }
 
         template<typename T>
-        void fillRand(T lower, T upper, std::vector<T> &dest, uint64_t num) {
-            if constexpr (std::is_integral<T>::value) {
-                util::uniform_int_distribution<T> dist{lower, upper};
-                while (num--) { dest.emplace_back(dist(rng)); }
-            } else if constexpr (std::is_floating_point<T>::value) {
-                util::uniform_real_distribution<T> dist{lower, upper};
-                while (num--) { dest.emplace_back(dist(rng)); }
-            } else {
-                static_assert(std::is_integral<T>::value | std::is_floating_point<T>::value,
-                              "T is neither integral result_type nor floating point result_type.");
-            }
+        requires std::integral<T> || std::floating_point<T>
+        void setRand(T lower, T upper, std::span<T> span) {
+            auto dist = std::conditional_t<std::is_integral_v<T>, util::uniform_int_distribution<T>,
+                                           util::uniform_real_distribution<T>>{lower, upper};
+            for (auto &val : span) val = dist(rng);
         }
 
-        template<typename T, typename ItStart, typename ItEnd>
-        void fillRand(T lower, T upper, ItStart start, ItEnd end) {
-            if constexpr (std::is_integral_v<T>) {
-                util::uniform_int_distribution<T> dist{lower, upper};
-                while (start != end) {
-                    *start = dist(rng);
-                    ++start;
-                }
-            } else if constexpr (std::is_floating_point_v<T>) {
-                util::uniform_real_distribution<T> dist{lower, upper};
-                while (start != end) {
-                    *start = dist(rng);
-                    ++start;
-                }
-            } else {
-                static_assert(std::is_integral<T>::value | std::is_floating_point<T>::value,
-                              "T is neither integral result_type nor floating point result_type.");
-            }
-        }
+    private:
+        RNG_Type rng;
     };
 
     template<typename T>
@@ -160,103 +107,6 @@ namespace util {
 
             memoryResource->deallocate(ptr, size * sizeof(T), alignof(T));
         }
-    };
-
-    struct ConditionFlag {
-    public:
-        explicit ConditionFlag(bool condition) noexcept : condition(condition) {}
-
-        void wait(bool con) noexcept {
-            std::unique_lock lock{mutex};
-            cv.wait(lock, [&, con] { return condition == con; });
-        }
-
-        template<typename Duration>
-        void wait_for(bool con, Duration &&duration) noexcept {
-            std::unique_lock lock{mutex};
-            cv.wait_for(lock, std::forward<Duration>(duration), [&, con] { return condition == con; });
-        }
-
-        template<typename Timepoint>
-        void wait_until(bool con, Timepoint &&timepoint) noexcept {
-            std::unique_lock lock{mutex};
-            cv.wait_until(lock, std::forward<Timepoint>(timepoint), [&, con] { return condition == con; });
-        }
-
-        void set() noexcept {
-            {
-                std::lock_guard lock{mutex};
-                condition = true;
-            }
-            cv.notify_one();
-        }
-
-        void set(bool con) noexcept {
-            {
-                std::lock_guard lock{mutex};
-                condition = con;
-            }
-            cv.notify_one();
-        }
-
-        void unset() noexcept {
-            {
-                std::lock_guard lock{mutex};
-                condition = false;
-            }
-            cv.notify_one();
-        }
-
-    private:
-        std::condition_variable cv;
-        std::mutex mutex;
-        bool condition;
-    };
-
-    template<typename IntType>
-    struct ReferenceCount {
-    public:
-        explicit ReferenceCount(IntType count) noexcept : count{count} {}
-
-        void wait(IntType _count) noexcept {
-            std::unique_lock lock{mutex};
-            cv.wait(lock, [&, _count] { return count == _count; });
-        }
-
-        template<typename Duration>
-        void wait_for(IntType _count, Duration &&duration) noexcept {
-            std::unique_lock lock{mutex};
-            cv.wait_for(lock, std::forward<Duration>(duration), [&, _count] { return count == _count; });
-        }
-
-        template<typename Timepoint>
-        void wait_until(IntType _count, Timepoint &&timepoint) noexcept {
-            std::unique_lock lock{mutex};
-            cv.wait_until(lock, std::forward<Timepoint>(timepoint), [&, _count] { return count == _count; });
-        }
-
-        void incr() noexcept {
-            {
-                std::lock_guard lock{mutex};
-                ++count;
-            }
-            cv.notify_all();
-        }
-
-        void decr() noexcept {
-            {
-                std::lock_guard lock{mutex};
-                --count;
-            }
-            cv.notify_all();
-        }
-
-    private:
-        std::condition_variable cv;
-        std::mutex mutex;
-
-        static_assert(std::is_integral_v<IntType>);
-        IntType count;
     };
 
 }// namespace util
@@ -315,32 +165,33 @@ namespace util {
     public:
         using clock = std::chrono::steady_clock;
         using time_point = clock::time_point;
-        using print_duartion = std::chrono::duration<double>;
+        using print_duration_t = std::chrono::duration<double>;
 
-    private:
-        std::string name;
-        time_point start;
-
-    public:
-        explicit Timer(std::string_view str) noexcept : name{str} { start = clock::now(); }
+        explicit Timer(std::string_view str) noexcept : name{str}, start{clock::now()} {}
 
         ~Timer() noexcept {
-            println(name, " :", std::chrono::duration_cast<print_duartion>(clock::now() - start).count(), " seconds");
+            fmt::print("{} : {} s\n", name, std::chrono::duration_cast<print_duration_t>(clock::now() - start).count());
         }
-    };
-
-    class StartFlag {
-    public:
-        void wait() const noexcept {
-            while (!m_StartFlag.load(std::memory_order_relaxed))
-                ;
-        }
-
-        void start() noexcept { m_StartFlag.store(true, std::memory_order_relaxed); }
 
     private:
-        std::atomic<bool> m_StartFlag{false};
+        std::string const name;
+        time_point const start;
     };
 }// namespace util
 
-#endif// CPP_TEST_UTIL_H
+namespace util {
+    class StartFlag {
+    public:
+        void wait() const noexcept { m_StartFlag.wait(false, std::memory_order_acquire); }
+
+        void start() noexcept {
+            m_StartFlag.test_and_set(std::memory_order_release);
+            m_StartFlag.notify_all();
+        }
+
+    private:
+        std::atomic_flag m_StartFlag{false};
+    };
+}// namespace util
+
+#endif

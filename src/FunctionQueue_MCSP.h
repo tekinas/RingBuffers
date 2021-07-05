@@ -1,5 +1,5 @@
-#ifndef FUNCTIONQUEUE_MCSP_H
-#define FUNCTIONQUEUE_MCSP_H
+#ifndef FUNCTIONQUEUE_MCSP
+#define FUNCTIONQUEUE_MCSP
 
 #include <atomic>
 #include <bit>
@@ -8,6 +8,18 @@
 #include <memory>
 #include <type_traits>
 #include <utility>
+
+#if defined(_MSC_VER)
+
+#define FORCE_INLINE __forceinline
+#define NEVER_INLINE __declspec(noinline)
+
+#else
+
+#define FORCE_INLINE inline __attribute__((always_inline))
+#define NEVER_INLINE __attribute__((noinline))
+
+#endif
 
 template<typename T, bool isWriteProtected, bool destroyNonInvoked = true>
 class FunctionQueue_MCSP {};
@@ -57,27 +69,27 @@ private:
         using InvokeAndDestroy = R (*)(void *obj_ptr, Args...) noexcept;
         using Destroy = void (*)(void *obj_ptr) noexcept;
 
-        inline auto getReadData() const noexcept {
+        auto getReadData() const noexcept {
             return std::pair{std::bit_cast<InvokeAndDestroy>(fp_offset.load(std::memory_order::relaxed) + fp_base),
                              std::bit_cast<std::byte *>(this) + obj_offset};
         }
 
         template<typename = void>
-        requires(destroyNonInvoked) inline void destroyFO() const noexcept {
+        requires(destroyNonInvoked) void destroyFO() const noexcept {
             if (fp_offset.load(std::memory_order::acquire)) {
                 std::bit_cast<Destroy>(destroyFp_offset + fp_base)(std::bit_cast<std::byte *>(this) + obj_offset);
             }
         }
 
-        inline auto getNextAddr() const noexcept { return std::bit_cast<std::byte *>(this) + stride; }
+        std::byte *getNextAddr() const noexcept { return std::bit_cast<std::byte *>(this) + stride; }
 
-        inline void free() noexcept { fp_offset.store(0, std::memory_order::release); }
+        void free() noexcept { fp_offset.store(0, std::memory_order::release); }
 
-        [[nodiscard]] inline bool isFree() const noexcept { return fp_offset.load(std::memory_order::acquire) == 0; }
+        [[nodiscard]] bool isFree() const noexcept { return fp_offset.load(std::memory_order::acquire) == 0; }
 
     private:
         template<typename Callable>
-        inline FunctionContext(Type<Callable>, uint16_t obj_offset, uint16_t stride) noexcept
+        FunctionContext(Type<Callable>, uint16_t obj_offset, uint16_t stride) noexcept
             : fp_offset{static_cast<uint32_t>(std::bit_cast<uintptr_t>(&invokeAndDestroy<Callable>) - fp_base)},
               destroyFp_offset{static_cast<uint32_t>(std::bit_cast<uintptr_t>(&destroy<Callable>) - fp_base)},
               obj_offset{obj_offset}, stride{stride} {}
@@ -94,10 +106,10 @@ private:
     public:
         Storage() noexcept = default;
 
-        inline explicit operator bool() const noexcept { return fp_ptr && obj_ptr; }
+        explicit operator bool() const noexcept { return fp_ptr && obj_ptr; }
 
         template<typename Callable, typename... CArgs>
-        inline std::byte *construct(CArgs &&...args) const noexcept {
+        std::byte *construct(CArgs &&...args) const noexcept {
             uint16_t const obj_offset = std::bit_cast<std::byte *>(obj_ptr) - std::bit_cast<std::byte *>(fp_ptr);
             new (fp_ptr)
                     FunctionContext{Type<Callable>{}, obj_offset, static_cast<uint16_t>(obj_offset + sizeof(Callable))};
@@ -169,7 +181,7 @@ public:
 
         explicit FunctionHandle(FunctionContext *fcp) noexcept : functionCxtPtr{fcp} {}
 
-        FunctionContext *functionCxtPtr{nullptr};
+        FunctionContext *functionCxtPtr{};
     };
 
     FunctionQueue_MCSP(std::byte *memory, size_t size) noexcept
@@ -181,9 +193,9 @@ public:
         if constexpr (destroyNonInvoked) destroyAllFO();
     }
 
-    inline auto buffer_size() const noexcept { return m_BufferSize; }
+    uint32_t buffer_size() const noexcept { return m_BufferSize; }
 
-    inline bool empty() const noexcept {
+    bool empty() const noexcept {
         return m_InputOffset.load(std::memory_order::acquire) == m_OutputHeadOffset.load(std::memory_order::relaxed);
     }
 
@@ -199,7 +211,7 @@ public:
         if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::relaxed);
     }
 
-    FunctionHandle __attribute__((always_inline)) get_function_handle() noexcept {
+    FORCE_INLINE FunctionHandle get_function_handle() noexcept {
         bool found_sentinel;
         FunctionContext *fcxtPtr;
         Offset nextOutputOffset;
@@ -247,13 +259,13 @@ public:
     }*/
 
     template<typename T>
-    inline bool push_back(T &&function) noexcept {
+    bool push_back(T &&function) noexcept {
         using Callable = std::decay_t<T>;
         return emplace_back<Callable>(std::forward<T>(function));
     }
 
     template<typename Callable, typename... CArgs>
-    inline bool emplace_back(CArgs &&...args) noexcept {
+    bool emplace_back(CArgs &&...args) noexcept {
         if constexpr (isWriteProtected)
             if (m_WriteFlag.test_and_set(std::memory_order::acquire)) return false;
 
@@ -275,7 +287,7 @@ public:
 
 private:
     template<typename T>
-    static constexpr inline T *align(void *ptr) noexcept {
+    static constexpr T *align(void const *ptr) noexcept {
         return std::bit_cast<T *>((std::bit_cast<uintptr_t>(ptr) - 1u + alignof(T)) & -alignof(T));
     }
 
@@ -297,8 +309,8 @@ private:
         std::destroy_at(static_cast<Callable *>(data));
     }
 
-    inline __attribute__((always_inline)) uint32_t cleanMemory() noexcept {
-        auto const output_head = m_OutputHeadOffset.load(std::memory_order::relaxed).getValue();
+    FORCE_INLINE uint32_t cleanMemory() noexcept {
+        auto const output_head = m_OutputHeadOffset.load(std::memory_order::acquire).getValue();
         auto output_tail = m_OutputTailOffset;
 
         if (output_tail != output_head) {
@@ -323,6 +335,29 @@ private:
         return output_tail;
     }
 
+    FORCE_INLINE Storage getStorage(uint32_t const input_offset, size_t const obj_align,
+                                    size_t const obj_size) noexcept {
+        auto const output_offset = cleanMemory();
+
+        if (input_offset >= output_offset) {
+            if (auto const storage = Storage::getAlignedStorage(m_Buffer + input_offset,
+                                                                m_BufferSize - input_offset - 1, obj_align, obj_size)) {
+                return storage;
+            }
+
+            if (output_offset) {
+                if (auto const storage = Storage::getAlignedStorage(m_Buffer, output_offset - 1, obj_align, obj_size)) {
+                    m_SentinelFollow = input_offset;
+                    m_SentinelRead.store(input_offset, std::memory_order::relaxed);
+                    return storage;
+                }
+            }
+            return {};
+        } else
+            return Storage::getAlignedStorage(m_Buffer + input_offset, output_offset - input_offset - 1, obj_align,
+                                              obj_size);
+    }
+
     template<typename = void>
     requires(destroyNonInvoked) void destroyAllFO() {
         auto destroyAndGetNext = [this](uint32_t output_offset) noexcept -> uint32_t {
@@ -343,29 +378,6 @@ private:
         }
 
         while (output_offset != input_offset) { output_offset = destroyAndGetNext(output_offset); }
-    }
-
-    inline Storage __attribute__((always_inline))
-    getStorage(uint32_t input_offset, size_t obj_align, size_t const obj_size) noexcept {
-        auto const output_offset = cleanMemory();
-
-        if (input_offset >= output_offset) {
-            if (auto const storage = Storage::getAlignedStorage(m_Buffer + input_offset,
-                                                                m_BufferSize - input_offset - 1, obj_align, obj_size)) {
-                return storage;
-            }
-
-            if (output_offset) {
-                if (auto const storage = Storage::getAlignedStorage(m_Buffer, output_offset - 1, obj_align, obj_size)) {
-                    m_SentinelFollow = input_offset;
-                    m_SentinelRead.store(input_offset, std::memory_order::relaxed);
-                    return storage;
-                }
-            }
-            return {};
-        } else
-            return Storage::getAlignedStorage(m_Buffer + input_offset, output_offset - input_offset - 1, obj_align,
-                                              obj_size);
     }
 
 private:
