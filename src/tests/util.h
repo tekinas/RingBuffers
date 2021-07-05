@@ -20,10 +20,10 @@ namespace util {
     public:
         Random() : rng{std::random_device{}()} {}
 
-        template<std::integral T>
+        template<std::unsigned_integral T>
         Random(T t) : rng{t} {}
 
-        template<std::integral T>
+        template<std::unsigned_integral T>
         void setSeed(T t) {
             rng.seed(t);
         }
@@ -170,7 +170,8 @@ namespace util {
         explicit Timer(std::string_view str) noexcept : name{str}, start{clock::now()} {}
 
         ~Timer() noexcept {
-            fmt::print("{} : {} s\n", name, std::chrono::duration_cast<print_duration_t>(clock::now() - start).count());
+            fmt::print("{} : {} seconds\n", name,
+                       std::chrono::duration_cast<print_duration_t>(clock::now() - start).count());
         }
 
     private:
