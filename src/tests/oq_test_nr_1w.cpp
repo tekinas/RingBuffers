@@ -19,11 +19,8 @@ using util::Random;
 using util::StartFlag;
 using util::Timer;
 
-struct Obj {
-    uint64_t const a;
-    float const b;
-    uint32_t const c;
-
+class Obj {
+public:
     explicit Obj(Random<> &rng) noexcept
         : a{rng.getRand<uint64_t>(std::numeric_limits<uint64_t>::min() + 1, std::numeric_limits<uint64_t>::max())},
           b{rng.getRand<float>(std::numeric_limits<float>::min(), std::numeric_limits<float>::max())},
@@ -44,6 +41,14 @@ struct Obj {
         auto const cc = rng.getRand<uint32_t>(0, c);
         return aa * bb * cc;
     }
+
+private:
+    friend bool OQ_IsObjectFree(Obj *ptr) noexcept;
+    friend void OQ_FreeObject(Obj *ptr) noexcept;
+
+    uint64_t a;
+    float b;
+    uint32_t c;
 };
 
 bool OQ_IsObjectFree(Obj *ptr) noexcept {

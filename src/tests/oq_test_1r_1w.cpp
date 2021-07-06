@@ -24,11 +24,8 @@ using util::Random;
 using util::StartFlag;
 using util::Timer;
 
-struct Obj {
-    uint64_t a;
-    float b;
-    uint32_t c;
-
+class Obj {
+public:
     Obj() noexcept = default;
 
     explicit Obj(Random<> &rng) noexcept
@@ -41,6 +38,14 @@ struct Obj {
         boost::hash_combine(seed, b);
         boost::hash_combine(seed, c);
     }
+
+private:
+    friend bool OQ_IsObjectFree(Obj *ptr) noexcept;
+    friend void OQ_FreeObject(Obj *ptr) noexcept;
+
+    uint64_t a;
+    float b;
+    uint32_t c;
 };
 
 bool OQ_IsObjectFree(Obj *ptr) noexcept {
