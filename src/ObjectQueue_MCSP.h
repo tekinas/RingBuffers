@@ -93,9 +93,7 @@ public:
 
 public:
     ObjectQueue_MCSP(ObjectType *buffer, size_t count)
-        : m_Array{buffer}, m_LastElementIndex{static_cast<uint32_t>(count) - 1} {
-        if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::relaxed);
-    }
+        : m_LastElementIndex{static_cast<uint32_t>(count) - 1}, m_Array{buffer} {}
 
     ~ObjectQueue_MCSP() noexcept { destroyAllObjects(); }
 
@@ -307,7 +305,7 @@ private:
     uint32_t m_OutputTailIndex{0};
     mutable std::atomic<Index> m_OutputHeadIndex{};
 
-    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag;
+    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag{};
 
     uint32_t const m_LastElementIndex;
     ObjectType *const m_Array;

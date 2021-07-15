@@ -34,7 +34,7 @@ private:
     template<typename>
     class Type {};
 
-    struct Storage;
+    class Storage;
 
     class FunctionContext {
     public:
@@ -102,7 +102,7 @@ private:
 
 public:
     FunctionQueue(std::byte *memory, std::size_t size) noexcept
-        : m_Buffer{memory}, m_BufferSize{static_cast<uint32_t>(size)} {}
+        : m_BufferSize{static_cast<uint32_t>(size)}, m_Buffer{memory} {}
 
     uint32_t buffer_size() const noexcept { return m_BufferSize; }
 

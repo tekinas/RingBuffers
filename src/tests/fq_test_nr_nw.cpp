@@ -32,7 +32,7 @@ public:
                 [computeCxt{std::move(computeCxt)}, functionQueue]<typename T>(T &&t) mutable {
                     auto compute = [computeCxt{std::move(computeCxt)}, t{std::forward<T>(t)}, functionQueue]() mutable {
                         computeCxt->num = t(computeCxt->num);
-			//fmt::print("{}\n",computeCxt->num);
+                        //fmt::print("{}\n",computeCxt->num);
 
                         if (++computeCxt->func != computeCxt->num_functions)
                             ComputeCxt::addComputeTask(std::move(computeCxt), functionQueue);
@@ -48,7 +48,7 @@ public:
 int main(int argc, char **argv) {
     if (argc == 1) {
         fmt::print("usage : ./fq_test_nr_nw <buffer_size> <seed> <functions> "
-                "<threads> <compute_chains>\n");
+                   "<threads> <compute_chains>\n");
     }
 
     size_t const rawQueueMemSize = [&] { return (argc >= 2) ? atof(argv[1]) : 10; }() * 1024 * 1024;

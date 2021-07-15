@@ -239,7 +239,7 @@ void test(BufferQueue &bufferQueue, uint32_t objects, size_t seed) noexcept {
             while (obj) {
                 if constexpr (std::is_same_v<std::remove_cvref_t<BufferQueue>, BufferQueueSCSP>) {
                     while (!bufferQueue.reserve()) std::this_thread::yield();
-                    auto const bytes_cousumed = bufferQueue.consume_all([&](std::span<std::byte> buffer) {
+                    bufferQueue.consume_all([&](std::span<std::byte> buffer) {
                         auto const obj_span =
                                 std::span{std::bit_cast<Obj *>(buffer.data()), buffer.size() / sizeof(Obj)};
                         for (auto &object : obj_span) object(seed);

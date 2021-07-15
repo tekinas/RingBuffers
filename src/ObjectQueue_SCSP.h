@@ -51,10 +51,7 @@ public:
 
 public:
     ObjectQueue_SCSP(ObjectType *buffer, size_t count)
-        : m_Array{buffer}, m_LastElementIndex{static_cast<uint32_t>(count) - 1} {
-        if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order::relaxed);
-        if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::relaxed);
-    }
+        : m_LastElementIndex{static_cast<uint32_t>(count) - 1}, m_Array{buffer} {}
 
     ~ObjectQueue_SCSP() noexcept { destroyAllObjects(); }
 
@@ -102,15 +99,13 @@ public:
             destroy(output_index);
 
             auto const nextIndex = output_index == m_LastElementIndex ? 0 : (output_index + 1);
-            if constexpr (isReadProtected) {
-                m_OutputIndex.store(nextIndex, std::memory_order::relaxed);
-                m_ReadFlag.clear(std::memory_order::release);
-            } else
-                m_OutputIndex.store(nextIndex, std::memory_order::release);
+            m_OutputIndex.store(nextIndex, std::memory_order::release);
+
+            if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order::release);
         };
 
         using ReturnType = decltype(std::forward<F>(functor)(std::declval<ObjectType &>()));
-        if constexpr (std::is_same_v<void, ReturnType>) {
+        if constexpr (std::is_void_v<ReturnType>) {
             std::forward<F>(functor)(object);
             cleanup();
         } else {
@@ -201,7 +196,7 @@ public:
 
         m_InputIndex.store(next_input_index, std::memory_order::release);
 
-        if constexpr (isWriteProtected) { m_WriteFlag.clear(std::memory_order::release); }
+        if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::release);
 
         return count_emplaced;
     }
@@ -235,8 +230,8 @@ private:
     std::atomic<uint32_t> m_InputIndex{0};
     mutable std::atomic<uint32_t> m_OutputIndex{0};
 
-    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag;
-    [[no_unique_address]] mutable std::conditional_t<isReadProtected, std::atomic_flag, Null> m_ReadFlag;
+    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag{};
+    [[no_unique_address]] mutable std::conditional_t<isReadProtected, std::atomic_flag, Null> m_ReadFlag{};
 
     uint32_t const m_LastElementIndex;
     ObjectType *const m_Array;

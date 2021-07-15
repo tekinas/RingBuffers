@@ -51,7 +51,7 @@ private:
         uint32_t use_count{};
     };
 
-    struct Storage;
+    class Storage;
 
     struct DataContext {
     public:
@@ -138,9 +138,7 @@ public:
     };
 
     BufferQueue_MCSP(std::byte *memory, size_t size) noexcept
-        : m_Buffer{memory}, m_BufferSize{static_cast<uint32_t>(size)} {
-        if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::relaxed);
-    }
+        : m_BufferSize{static_cast<uint32_t>(size)}, m_Buffer{memory} {}
 
     ~BufferQueue_MCSP() noexcept = default;
 
@@ -363,7 +361,7 @@ private:
     mutable std::atomic<Offset> m_OutputHeadOffset{};
     mutable std::atomic<uint32_t> m_SentinelRead{NO_SENTINEL};
 
-    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag;
+    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag{};
 
     uint32_t const m_BufferSize;
     std::byte *const m_Buffer;

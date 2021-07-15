@@ -110,10 +110,7 @@ public:
     };
 
     BufferQueue_SCSP(void *memory, std::size_t size) noexcept
-        : m_Buffer{static_cast<std::byte *const>(memory)}, m_BufferSize{static_cast<uint32_t>(size)} {
-        if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order::relaxed);
-        if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::relaxed);
-    }
+        : m_BufferSize{static_cast<uint32_t>(size)}, m_Buffer{static_cast<std::byte *const>(memory)} {}
 
     ~BufferQueue_SCSP() noexcept = default;
 
@@ -156,7 +153,7 @@ public:
     }
 
     template<typename F>
-    uint32_t consume(F &&functor) const noexcept {
+    decltype(auto) consume(F &&functor) const noexcept {
         auto const output_offset = m_OutputOffset.load(std::memory_order::acquire);
         bool const found_sentinel = output_offset == m_SentinelRead.load(std::memory_order::relaxed);
         if (found_sentinel) m_SentinelRead.store(NO_SENTINEL, std::memory_order::relaxed);
@@ -165,12 +162,20 @@ public:
         auto const buffer = data_cxt->getBuffer();
         uint32_t const next_output_offset = data_cxt->getNextAddr() - m_Buffer;
 
-        std::forward<F>(functor)(buffer);
+        auto forward_output_offset = [&, next_output_offset] {
+            m_OutputOffset.store(next_output_offset, std::memory_order::release);
+            if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order::release);
+        };
 
-        m_OutputOffset.store(next_output_offset, std::memory_order::release);
-        if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order::release);
-
-        return buffer.size();
+        using ReturnType = decltype(std::forward<F>(functor)(std::span<std::byte>{}));
+        if constexpr (std::is_void_v<ReturnType>) {
+            std::forward<F>(functor)(buffer);
+            forward_output_offset();
+        } else {
+            auto &&result{std::forward<F>(functor)(std::forward<F>(functor)(buffer))};
+            forward_output_offset();
+            return std::forward<decltype(result)>(result);
+        }
     }
 
     template<typename F>
@@ -321,8 +326,8 @@ private:
     mutable std::atomic<uint32_t> m_OutputOffset{0};
     mutable std::atomic<uint32_t> m_SentinelRead{NO_SENTINEL};
 
-    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag;
-    [[no_unique_address]] mutable std::conditional_t<isReadProtected, std::atomic_flag, Null> m_ReadFlag;
+    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag{};
+    [[no_unique_address]] mutable std::conditional_t<isReadProtected, std::atomic_flag, Null> m_ReadFlag{};
 
     uint32_t const m_BufferSize;
     std::byte *const m_Buffer;

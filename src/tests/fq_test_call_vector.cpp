@@ -135,4 +135,4 @@ void *operator new(size_t bytes) {
     return malloc(bytes);
 }
 
-void operator delete(void *ptr) { free(ptr); }
+void operator delete(void *ptr, size_t) { free(ptr); }

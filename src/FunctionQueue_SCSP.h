@@ -36,7 +36,7 @@ private:
     template<typename>
     class Type {};
 
-    struct Storage;
+    class Storage;
 
     class FunctionContext {
     public:
@@ -104,10 +104,7 @@ private:
 
 public:
     FunctionQueue_SCSP(std::byte *memory, std::size_t size) noexcept
-        : m_Buffer{memory}, m_BufferSize{static_cast<uint32_t>(size)} {
-        if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order::relaxed);
-        if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::relaxed);
-    }
+        : m_BufferSize{static_cast<uint32_t>(size)}, m_Buffer{memory} {}
 
     ~FunctionQueue_SCSP() noexcept {
         if constexpr (destroyNonInvoked) destroyAllFO();
@@ -266,7 +263,7 @@ private:
     mutable std::atomic<uint32_t> m_OutputOffset{0};
     mutable std::atomic<uint32_t> m_SentinelRead{NO_SENTINEL};
 
-    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag;
+    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag{};
     [[no_unique_address]] mutable std::conditional_t<isReadProtected, std::atomic_flag, Null> m_ReadFlag;
 
     uint32_t const m_BufferSize;

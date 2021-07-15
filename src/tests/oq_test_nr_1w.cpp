@@ -76,7 +76,6 @@ void test(ObjectQueue &objectQueue, uint16_t threads, uint32_t objects, std::siz
                 [&, i, object_per_thread = objects / threads, rng = Random<>{0u}]() mutable noexcept {
                     start_flag.wait();
 
-                    constexpr std::size_t seed = 0;
                     std::vector<uint64_t> local_result;
                     local_result.reserve(object_per_thread);
 
@@ -144,7 +143,6 @@ void test(FunctionQueue &functionQueue, uint16_t threads, uint32_t objects, std:
                 [&, i, object_per_thread = objects / threads, rng = Random<>{0u}]() mutable noexcept {
                     start_flag.wait();
 
-                    constexpr std::size_t seed = 0;
                     std::vector<uint64_t> local_result;
                     local_result.reserve(object_per_thread);
 
@@ -202,7 +200,6 @@ void test(BufferQueue &bufferQueue, uint16_t threads, uint32_t objects, std::siz
                 [&, i, object_per_thread = objects / threads, rng = Random<>{0u}]() mutable noexcept {
                     start_flag.wait();
 
-                    constexpr std::size_t seed = 0;
                     std::vector<uint64_t> local_result;
                     local_result.reserve(object_per_thread);
 
