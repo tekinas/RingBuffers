@@ -109,8 +109,8 @@ public:
         BufferQueue_SCSP const *buffer_queue;
     };
 
-    BufferQueue_SCSP(void *memory, std::size_t size) noexcept
-        : m_BufferSize{static_cast<uint32_t>(size)}, m_Buffer{static_cast<std::byte *const>(memory)} {}
+    BufferQueue_SCSP(std::byte *memory, std::size_t size) noexcept
+        : m_BufferSize{static_cast<uint32_t>(size)}, m_Buffer{memory} {}
 
     ~BufferQueue_SCSP() noexcept = default;
 

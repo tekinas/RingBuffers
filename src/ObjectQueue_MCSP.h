@@ -30,7 +30,6 @@ concept ObjectQueueFreeable = requires(T *obj) {
 
 template<typename ObjectType, bool isWriteProtected>
 requires ObjectQueueFreeable<ObjectType>
-
 class ObjectQueue_MCSP {
 public:
     class Index {
