@@ -75,4 +75,4 @@ int main(int argc, char **argv) {
 
 #include <boost/throw_exception.hpp>
 
-void boost::throw_exception(std::exception const &e) { std::terminate(); }
+void boost::throw_exception(std::exception const &) { std::terminate(); }

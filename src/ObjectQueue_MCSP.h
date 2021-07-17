@@ -37,8 +37,6 @@ public:
     public:
         Index() noexcept = default;
 
-        Index(Index const &) noexcept = default;
-
         friend bool operator==(Index const &l, Index const &r) noexcept {
             return l.value == r.value && l.use_count == r.use_count;
         }

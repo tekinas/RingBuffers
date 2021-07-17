@@ -75,15 +75,14 @@ void test_buffer_queue(BufferQueue &buffer_queue, Random<> &rng, size_t buffers)
         size_t total_bytes{0};
         constexpr uint32_t min_buffer_size{3000};
         while (func) {
-            buffer_queue.allocate_and_release(
-                    min_buffer_size, [&, min_buffer_size](std::span<std::byte> buffer) mutable {
-                        auto const fill_bytes{rng.getRand<uint32_t>(10, min_buffer_size)};
-                        total_bytes += fill_bytes;
-                        std::span const data{reinterpret_cast<char *>(buffer.data()), fill_bytes};
-                        rng.setRand(std::numeric_limits<char>::min(), std::numeric_limits<char>::max(), data);
-                        --func;
-                        return fill_bytes;
-                    });
+            buffer_queue.allocate_and_release(min_buffer_size, [&](std::span<std::byte> buffer) mutable {
+                auto const fill_bytes{rng.getRand<uint32_t>(10, min_buffer_size)};
+                total_bytes += fill_bytes;
+                std::span const data{reinterpret_cast<char *>(buffer.data()), fill_bytes};
+                rng.setRand(std::numeric_limits<char>::min(), std::numeric_limits<char>::max(), data);
+                --func;
+                return fill_bytes;
+            });
         }
         fmt::print("bytes written : {}\n", total_bytes);
     }};

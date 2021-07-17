@@ -31,8 +31,6 @@ private:
     public:
         Offset() noexcept = default;
 
-        Offset(Offset const &) noexcept = default;
-
         friend bool operator==(Offset const &l, Offset const &r) noexcept {
             return l.value == r.value && l.use_count == r.use_count;
         }

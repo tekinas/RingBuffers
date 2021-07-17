@@ -12,7 +12,7 @@
 #define FMT_HEADER_ONLY
 #include <fmt/format.h>
 
-#include "uniform_distribution.h"
+#include <boost/random.hpp>
 
 namespace util {
     template<typename RNG_Type = std::mt19937_64>
@@ -30,39 +30,39 @@ namespace util {
 
         template<std::floating_point T = float>
         T getRand() {
-            return util::uniform_real_distribution<T>{T{0.0}, T{1.0}}(rng);
+            return boost::random::uniform_real_distribution<T>{T{0.0}, T{1.0}}(rng);
         }
 
         template<typename T>
         requires std::integral<T> || std::floating_point<T> T getRand(T lower, T upper) {
             if constexpr (std::is_integral_v<T>) {
-                return util::uniform_int_distribution<T>{lower, upper}(rng);
+                return boost::random::uniform_int_distribution<T>{lower, upper}(rng);
             } else if constexpr (std::is_floating_point_v<T>) {
-                return util::uniform_real_distribution<T>{lower, upper}(rng);
+                return boost::random::uniform_real_distribution<T>{lower, upper}(rng);
             }
         }
 
         template<typename T, typename Container>
         requires std::integral<T> || std::floating_point<T>
         void addRand(T lower, T upper, uint64_t num, std::back_insert_iterator<Container> it) {
-            auto dist = std::conditional_t<std::is_integral_v<T>, util::uniform_int_distribution<T>,
-                                           util::uniform_real_distribution<T>>{lower, upper};
+            auto dist = std::conditional_t<std::is_integral_v<T>, boost::random::uniform_int_distribution<T>,
+                                           boost::random::uniform_real_distribution<T>>{lower, upper};
             while (num--) { it = dist(rng); }
         }
 
         template<typename T, typename Container>
         requires std::integral<T> || std::floating_point<T>
         void addRand(T lower, T upper, uint64_t num, std::insert_iterator<Container> it) {
-            auto dist = std::conditional_t<std::is_integral_v<T>, util::uniform_int_distribution<T>,
-                                           util::uniform_real_distribution<T>>{lower, upper};
+            auto dist = std::conditional_t<std::is_integral_v<T>, boost::random::uniform_int_distribution<T>,
+                                           boost::random::uniform_real_distribution<T>>{lower, upper};
             while (num--) { it = dist(rng); }
         }
 
         template<typename T>
         requires std::integral<T> || std::floating_point<T>
         void setRand(T lower, T upper, std::span<T> span) {
-            auto dist = std::conditional_t<std::is_integral_v<T>, util::uniform_int_distribution<T>,
-                                           util::uniform_real_distribution<T>>{lower, upper};
+            auto dist = std::conditional_t<std::is_integral_v<T>, boost::random::uniform_int_distribution<T>,
+                                           boost::random::uniform_real_distribution<T>>{lower, upper};
             for (auto &val : span) val = dist(rng);
         }
 
@@ -191,7 +191,7 @@ namespace util {
         }
 
     private:
-        std::atomic_flag m_StartFlag{false};
+        std::atomic_flag m_StartFlag{};
     };
 }// namespace util
 
