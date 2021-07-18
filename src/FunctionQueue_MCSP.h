@@ -59,7 +59,6 @@ private:
         explicit Null(T &&...) noexcept {}
     };
 
-
     class Storage;
 
     class FunctionContext {
@@ -68,14 +67,14 @@ private:
         using Destroy = void (*)(void *obj_ptr) noexcept;
 
         auto getReadData() const noexcept {
-            return std::pair{std::bit_cast<InvokeAndDestroy>(fp_offset.load(std::memory_order::relaxed) + fp_base),
+            return std::pair{std::bit_cast<InvokeAndDestroy>(getFp(fp_offset.load(std::memory_order::relaxed))),
                              std::bit_cast<std::byte *>(this) + obj_offset};
         }
 
         template<typename = void>
         requires(destroyNonInvoked) void destroyFO() const noexcept {
             if (fp_offset.load(std::memory_order::acquire)) {
-                std::bit_cast<Destroy>(destroyFp_offset + fp_base)(std::bit_cast<std::byte *>(this) + obj_offset);
+                std::bit_cast<Destroy>(getFp(destroyFp_offset))(std::bit_cast<std::byte *>(this) + obj_offset);
             }
         }
 
@@ -88,8 +87,7 @@ private:
     private:
         template<typename Callable>
         FunctionContext(Type<Callable>, uint16_t obj_offset, uint16_t stride) noexcept
-            : fp_offset{static_cast<uint32_t>(std::bit_cast<uintptr_t>(&invokeAndDestroy<Callable>) - fp_base)},
-              destroyFp_offset{static_cast<uint32_t>(std::bit_cast<uintptr_t>(&destroy<Callable>) - fp_base)},
+            : fp_offset{getFpOffset(&invokeAndDestroy<Callable>)}, destroyFp_offset{getFpOffset(&destroy<Callable>)},
               obj_offset{obj_offset}, stride{stride} {}
 
         std::atomic<uint32_t> fp_offset;
@@ -376,6 +374,19 @@ private:
         while (output_offset != input_offset) { output_offset = destroyAndGetNext(output_offset); }
     }
 
+    static void fp_base_func() noexcept {}
+
+    static void *getFp(uint32_t fp_offset) noexcept {
+        const uintptr_t fp_base =
+                std::bit_cast<uintptr_t>(&fp_base_func) & (static_cast<uintptr_t>(0XFFFFFFFF00000000lu));
+        return std::bit_cast<void *>(fp_base + fp_offset);
+    }
+
+    template<typename FR, typename... FArgs>
+    static uint32_t getFpOffset(FR (*fp)(FArgs...)) noexcept {
+        return static_cast<uint32_t>(std::bit_cast<uintptr_t>(fp));
+    }
+
 private:
     static constexpr uint32_t NO_SENTINEL{std::numeric_limits<uint32_t>::max()};
 
@@ -390,13 +401,6 @@ private:
 
     uint32_t const m_BufferSize;
     std::byte *const m_Buffer;
-
-    static R baseFP(Args...) noexcept {
-        if constexpr (!std::is_void_v<R>) return std::declval<R>();
-    }
-
-    static inline const uintptr_t fp_base = std::bit_cast<uintptr_t>(&invokeAndDestroy<decltype(&baseFP)>) &
-                                            (static_cast<uintptr_t>(std::numeric_limits<uint32_t>::max()) << 32u);
 };
 
 #endif
