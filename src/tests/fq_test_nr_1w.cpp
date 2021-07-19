@@ -42,10 +42,11 @@ int main(int argc, char **argv) {
 
     std::vector<std::jthread> reader_threads;
     for (auto t = num_threads; t--;) {
-        reader_threads.emplace_back([&, str{"thread " + std::to_string(t + 1)}] {
-            startFlag.wait();
+        reader_threads.emplace_back([&, str{fmt::format("thread {}", t + 1)}] {
             std::vector<size_t> res_vec;
             res_vec.reserve(11 * functions / num_threads / 10);
+
+            startFlag.wait();
             {
                 Timer timer{str};
 
