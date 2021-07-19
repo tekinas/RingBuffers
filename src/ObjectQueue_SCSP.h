@@ -128,7 +128,6 @@ public:
         };
 
         uint32_t objects_consumed;
-
         if (output_index > input_index) {
             auto const end1 = m_LastElementIndex + 1;
             auto const end2 = input_index;
@@ -137,11 +136,10 @@ public:
             consume_and_destroy(0, end2);
 
             objects_consumed = (end1 - output_index) + end2;
-
         } else {
-            /// if (output_index < input_index), case of (output_index ==
-            /// input_index) is not handled as consume functions must be called
-            /// after successful reserve on the object queue by the thread reading from it.
+            /* if (output_index < input_index), case of (output_index == input_index)
+               is not handled as consume functions must be called
+               on non-empty queue. */
             consume_and_destroy(output_index, input_index);
             objects_consumed = input_index - output_index;
         }
@@ -171,7 +169,7 @@ public:
 
         m_InputIndex.store(next_input_index, std::memory_order::release);
 
-        if constexpr (isWriteProtected) { m_WriteFlag.clear(std::memory_order::release); }
+        if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::release);
 
         return true;
     }
@@ -221,17 +219,17 @@ private:
     }
 
 private:
-    class Null {
+    class Empty {
     public:
         template<typename... T>
-        explicit Null(T &&...) noexcept {}
+        explicit Empty(T &&...) noexcept {}
     };
 
     std::atomic<uint32_t> m_InputIndex{0};
     mutable std::atomic<uint32_t> m_OutputIndex{0};
 
-    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag{};
-    [[no_unique_address]] mutable std::conditional_t<isReadProtected, std::atomic_flag, Null> m_ReadFlag{};
+    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Empty> m_WriteFlag{};
+    [[no_unique_address]] mutable std::conditional_t<isReadProtected, std::atomic_flag, Empty> m_ReadFlag{};
 
     uint32_t const m_LastElementIndex;
     ObjectType *const m_Array;

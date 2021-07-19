@@ -10,15 +10,9 @@
 #include <utility>
 
 #if defined(_MSC_VER)
-
 #define FORCE_INLINE __forceinline
-#define NEVER_INLINE __declspec(noinline)
-
 #else
-
 #define FORCE_INLINE inline __attribute__((always_inline))
-#define NEVER_INLINE __attribute__((noinline))
-
 #endif
 
 template<typename T, bool isReadProtected, bool isWriteProtected, bool destroyNonInvoked = true>
@@ -27,10 +21,10 @@ class FunctionQueue_SCSP {};
 template<typename R, typename... Args, bool isReadProtected, bool isWriteProtected, bool destroyNonInvoked>
 class FunctionQueue_SCSP<R(Args...), isReadProtected, isWriteProtected, destroyNonInvoked> {
 private:
-    class Null {
+    class Empty {
     public:
         template<typename... T>
-        explicit Null(T &&...) noexcept {}
+        explicit Empty(T &&...) noexcept {}
     };
 
     template<typename>
@@ -62,7 +56,7 @@ private:
               obj_offset{obj_offset}, stride{stride} {}
 
         uint32_t const fp_offset;
-        [[no_unique_address]] std::conditional_t<destroyNonInvoked, uint32_t const, Null> destroyFp_offset;
+        [[no_unique_address]] std::conditional_t<destroyNonInvoked, uint32_t const, Empty> destroyFp_offset;
         uint16_t const obj_offset;
         uint16_t const stride;
 
@@ -275,8 +269,8 @@ private:
     mutable std::atomic<uint32_t> m_OutputOffset{0};
     mutable std::atomic<uint32_t> m_SentinelRead{NO_SENTINEL};
 
-    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag{};
-    [[no_unique_address]] mutable std::conditional_t<isReadProtected, std::atomic_flag, Null> m_ReadFlag;
+    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Empty> m_WriteFlag{};
+    [[no_unique_address]] mutable std::conditional_t<isReadProtected, std::atomic_flag, Empty> m_ReadFlag{};
 
     uint32_t const m_BufferSize;
     std::byte *const m_Buffer;

@@ -11,15 +11,9 @@
 #include <utility>
 
 #if defined(_MSC_VER)
-
 #define FORCE_INLINE __forceinline
-#define NEVER_INLINE __declspec(noinline)
-
 #else
-
 #define FORCE_INLINE inline __attribute__((always_inline))
-#define NEVER_INLINE __attribute__((noinline))
-
 #endif
 
 template<bool isReadProtected, bool isWriteProtected, size_t buffer_align = sizeof(std::max_align_t)>
@@ -312,10 +306,10 @@ private:
     }
 
 private:
-    class Null {
+    class Empty {
     public:
         template<typename... T>
-        explicit Null(T &&...) noexcept {}
+        explicit Empty(T &&...) noexcept {}
     };
 
     static constexpr uint32_t NO_SENTINEL{std::numeric_limits<uint32_t>::max()};
@@ -326,8 +320,8 @@ private:
     mutable std::atomic<uint32_t> m_OutputOffset{0};
     mutable std::atomic<uint32_t> m_SentinelRead{NO_SENTINEL};
 
-    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag{};
-    [[no_unique_address]] mutable std::conditional_t<isReadProtected, std::atomic_flag, Null> m_ReadFlag{};
+    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Empty> m_WriteFlag{};
+    [[no_unique_address]] mutable std::conditional_t<isReadProtected, std::atomic_flag, Empty> m_ReadFlag{};
 
     uint32_t const m_BufferSize;
     std::byte *const m_Buffer;

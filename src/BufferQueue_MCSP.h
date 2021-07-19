@@ -12,41 +12,35 @@
 #include <utility>
 
 #if defined(_MSC_VER)
-
 #define FORCE_INLINE __forceinline
-#define NEVER_INLINE __declspec(noinline)
-
 #else
-
 #define FORCE_INLINE inline __attribute__((always_inline))
-#define NEVER_INLINE __attribute__((noinline))
-
 #endif
 
 template<bool isWriteProtected, size_t buffer_align = sizeof(std::max_align_t)>
 class BufferQueue_MCSP {
 private:
-    class Offset {
+    class TaggedUint32 {
     public:
-        Offset() noexcept = default;
+        TaggedUint32() noexcept = default;
 
-        friend bool operator==(Offset const &l, Offset const &r) noexcept {
-            return l.value == r.value && l.use_count == r.use_count;
+        friend bool operator==(TaggedUint32 const &l, TaggedUint32 const &r) noexcept {
+            return l.value == r.value && l.tag == r.tag;
         }
 
         uint32_t getValue() const noexcept { return value; }
 
-        uint32_t getIndex() const noexcept { return use_count; }
+        uint32_t getTag() const noexcept { return tag; }
 
-        Offset getIncrIndexed(uint32_t new_value) const noexcept { return {new_value, use_count + 1}; }
+        TaggedUint32 getIncrTagged(uint32_t new_value) const noexcept { return {new_value, tag + 1}; }
 
-        Offset getSameIndexed(uint32_t new_value) const noexcept { return {new_value, use_count}; }
+        TaggedUint32 getSameTagged(uint32_t new_value) const noexcept { return {new_value, tag}; }
 
     private:
-        Offset(uint32_t value, uint32_t index) noexcept : value{value}, use_count{index} {}
+        TaggedUint32(uint32_t value, uint32_t index) noexcept : value{value}, tag{index} {}
 
         alignas(std::atomic<uint64_t>) uint32_t value{};
-        uint32_t use_count{};
+        uint32_t tag{};
     };
 
     class Storage;
@@ -201,13 +195,22 @@ public:
     }
 
     void release(uint32_t bytes_allocated) noexcept {
-        auto const next_input_offset =
+        auto const nextInputOffsetValue =
                 Storage::createContext(m_Buffer + m_CurrentBufferCxtOffset, bytes_allocated) - m_Buffer;
-
         auto const input_offset = m_InputOffset.load(std::memory_order::relaxed);
-        m_InputOffset.store(input_offset.getIncrIndexed(next_input_offset), std::memory_order::release);
+        auto const nextInputOffset = input_offset.getIncrTagged(nextInputOffsetValue);
+
+        m_InputOffset.store(nextInputOffset, std::memory_order::release);
 
         if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::release);
+
+        if (nextInputOffset.getTag() == 0) {
+            auto output_offset = nextInputOffset;
+            while (!m_OutputHeadOffset.compare_exchange_weak(output_offset,
+                                                             nextInputOffset.getSameTagged(output_offset.getValue()),
+                                                             std::memory_order::relaxed, std::memory_order::relaxed))
+                ;
+        }
     }
 
     template<typename F>
@@ -225,11 +228,21 @@ public:
 
         auto const available_storage = std::span<std::byte>{storage.buffer, storage.bytes_avl};
         auto const bytes_allocated = std::forward<F>(functor)(available_storage);
-        auto const next_input_offset = storage.createContext(bytes_allocated) - m_Buffer;
+        auto const nextInputOffsetValue = storage.createContext(bytes_allocated) - m_Buffer;
 
-        m_InputOffset.store(input_offset.getIncrIndexed(next_input_offset), std::memory_order::release);
+        auto const nextInputOffset = input_offset.getIncrTagged(nextInputOffsetValue);
+
+        m_InputOffset.store(nextInputOffset, std::memory_order::release);
 
         if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::release);
+
+        if (nextInputOffset.getTag() == 0) {
+            auto output_offset = nextInputOffset;
+            while (!m_OutputHeadOffset.compare_exchange_weak(output_offset,
+                                                             nextInputOffset.getSameTagged(output_offset.getValue()),
+                                                             std::memory_order::relaxed, std::memory_order::relaxed))
+                ;
+        }
 
         return bytes_allocated;
     }
@@ -263,7 +276,7 @@ private:
 
     FORCE_INLINE DataContext *get_data_cxt() const noexcept {
         DataContext *dataCxtPtr;
-        Offset nextOutputOffset;
+        TaggedUint32 nextOutputOffset;
         bool found_sentinel;
 
         auto output_offset = m_OutputHeadOffset.load(std::memory_order::relaxed);
@@ -271,14 +284,14 @@ private:
         do {
             auto const input_offset = m_InputOffset.load(std::memory_order::acquire);
 
-            if (input_offset.getIndex() < output_offset.getIndex()) return nullptr;
+            if (input_offset.getTag() < output_offset.getTag()) return nullptr;
             if (input_offset.getValue() == output_offset.getValue()) return nullptr;
 
             found_sentinel = output_offset.getValue() == m_SentinelRead.load(std::memory_order::relaxed);
             dataCxtPtr = align<DataContext>(m_Buffer + (found_sentinel ? 0 : output_offset.getValue()));
 
             uint32_t const nextOffset = dataCxtPtr->getNextAddr() - m_Buffer;
-            nextOutputOffset = input_offset.getSameIndexed(nextOffset);
+            nextOutputOffset = input_offset.getSameTagged(nextOffset);
 
         } while (!m_OutputHeadOffset.compare_exchange_weak(output_offset, nextOutputOffset, std::memory_order::relaxed,
                                                            std::memory_order::relaxed));
@@ -343,23 +356,23 @@ private:
     }
 
 private:
-    class Null {
+    class Empty {
     public:
         template<typename... T>
-        explicit Null(T &&...) noexcept {}
+        explicit Empty(T &&...) noexcept {}
     };
 
     static constexpr uint32_t NO_SENTINEL{std::numeric_limits<uint32_t>::max()};
 
-    std::atomic<Offset> m_InputOffset{};
+    std::atomic<TaggedUint32> m_InputOffset{};
     uint32_t m_CurrentBufferCxtOffset{0};
     uint32_t m_OutputTailOffset{0};
     uint32_t m_SentinelFollow{NO_SENTINEL};
 
-    mutable std::atomic<Offset> m_OutputHeadOffset{};
+    mutable std::atomic<TaggedUint32> m_OutputHeadOffset{};
     mutable std::atomic<uint32_t> m_SentinelRead{NO_SENTINEL};
 
-    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Null> m_WriteFlag{};
+    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, Empty> m_WriteFlag{};
 
     uint32_t const m_BufferSize;
     std::byte *const m_Buffer;

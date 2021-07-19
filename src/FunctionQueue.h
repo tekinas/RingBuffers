@@ -2,21 +2,16 @@
 #define FUNCTIONQUEUE
 
 #include <bit>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <memory>
 #include <utility>
 
 #if defined(_MSC_VER)
-
 #define FORCE_INLINE __forceinline
-#define NEVER_INLINE __declspec(noinline)
-
 #else
-
 #define FORCE_INLINE inline __attribute__((always_inline))
-#define NEVER_INLINE __attribute__((noinline))
-
 #endif
 
 template<typename T, bool destroyNonInvoked = true>
@@ -25,10 +20,10 @@ class FunctionQueue {};
 template<typename R, typename... Args, bool destroyNonInvoked>
 class FunctionQueue<R(Args...), destroyNonInvoked> {
 private:
-    class Null {
+    class Empty {
     public:
         template<typename... T>
-        explicit Null(T &&...) noexcept {}
+        explicit Empty(T &&...) noexcept {}
     };
 
     template<typename>
@@ -60,7 +55,7 @@ private:
               obj_offset{obj_offset}, stride{stride} {}
 
         uint32_t const fp_offset;
-        [[no_unique_address]] std::conditional_t<destroyNonInvoked, uint32_t const, Null> destroyFp_offset;
+        [[no_unique_address]] std::conditional_t<destroyNonInvoked, uint32_t const, Empty> destroyFp_offset;
         uint16_t const obj_offset;
         uint16_t const stride;
 
