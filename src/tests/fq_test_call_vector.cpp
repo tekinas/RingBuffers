@@ -111,7 +111,6 @@ void test(std::vector<Function<ComputeFunctionSig>> &vectorComputeQueue) noexcep
             num = function(num);
             //function = {};
         }
-        //vectorComputeQueue.clear();
     }
     fmt::print("result : {}\n\n", num);
 }
@@ -125,7 +124,6 @@ void test(std::vector<std::function<ComputeFunctionSig>> &vectorStdComputeQueue)
             num = function(num);
             //function = {};
         }
-        //vectorStdComputeQueue.clear();
     }
     fmt::print("result : {}\n\n", num);
 }

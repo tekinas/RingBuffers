@@ -4,7 +4,7 @@
 #include "ComputeCallbackGenerator.h"
 #include "util.h"
 
-#include <deque>
+#include <queue>
 #include <folly/Function.h>
 
 #define FMT_HEADER_ONLY
@@ -29,8 +29,8 @@ int main(int argc, char **argv) {
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
     fmt::print("seed : {}\n", seed);
 
-    std::deque<Function<ComputeFunctionSig>> computeDequeue;
-    std::deque<std::function<ComputeFunctionSig>> computeStdDequeue;
+    std::queue<Function<ComputeFunctionSig>> computeDequeue;
+    std::queue<std::function<ComputeFunctionSig>> computeStdDequeue;
 
     CallbackGenerator callbackGenerator{seed};
 
@@ -60,7 +60,7 @@ int main(int argc, char **argv) {
         bytes_allocated = &computeDequeueStorage;
 
         for (auto count = compute_functors; count--;) {
-            callbackGenerator.addCallback([&]<typename T>(T &&t) { computeDequeue.emplace_back(std::forward<T>(t)); });
+            callbackGenerator.addCallback([&]<typename T>(T &&t) { computeDequeue.emplace(std::forward<T>(t)); });
         }
     }
 
@@ -70,8 +70,7 @@ int main(int argc, char **argv) {
         bytes_allocated = &computeStdDequeueStorage;
 
         for (auto count = compute_functors; count--;) {
-            callbackGenerator.addCallback(
-                    [&]<typename T>(T &&t) { computeStdDequeue.emplace_back(std::forward<T>(t)); });
+            callbackGenerator.addCallback([&]<typename T>(T &&t) { computeStdDequeue.emplace(std::forward<T>(t)); });
         }
     }
 
@@ -82,8 +81,8 @@ int main(int argc, char **argv) {
     fmt::print("std::dequeue<std::function> memory : {} MiB\n\n", computeStdDequeueStorage / ONE_MiB);
 
     void test(ComputeFunctionQueue &) noexcept;
-    void test(std::deque<Function<ComputeFunctionSig>> &) noexcept;
-    void test(std::deque<std::function<ComputeFunctionSig>> &) noexcept;
+    void test(std::queue<Function<ComputeFunctionSig>> &) noexcept;
+    void test(std::queue<std::function<ComputeFunctionSig>> &) noexcept;
 
     test(functionQueue);
     test(computeDequeue);
@@ -99,28 +98,26 @@ void test(ComputeFunctionQueue &functionQueue) noexcept {
     fmt::print("result : {}\n\n", num);
 }
 
-void test(std::deque<Function<ComputeFunctionSig>> &computeDequeue) noexcept {
+void test(std::queue<Function<ComputeFunctionSig>> &computeDequeue) noexcept {
     size_t num = 0;
     {
         Timer timer{"std::deque of functions"};
-        for (auto end = computeDequeue.end(), begin = computeDequeue.begin(); begin != end; ++begin) {
-            num = (*begin)(num);
-            //*begin = {};
+        while (!computeDequeue.empty()) {
+            num = computeDequeue.front()(num);
+            computeDequeue.pop();
         }
-        //computeDequeue.clear();
     }
     fmt::print("result : {}\n\n", num);
 }
 
-void test(std::deque<std::function<ComputeFunctionSig>> &computeStdDequeue) noexcept {
+void test(std::queue<std::function<ComputeFunctionSig>> &computeStdDequeue) noexcept {
     size_t num = 0;
     {
         Timer timer{"std::deque of std functions"};
-        for (auto end = computeStdDequeue.end(), begin = computeStdDequeue.begin(); begin != end; ++begin) {
-            num = (*begin)(num);
-            //*begin = {};
+        while (!computeStdDequeue.empty()) {
+            num = computeStdDequeue.front()(num);
+            computeStdDequeue.pop();
         }
-        //computeStdDequeue.clear();
     }
     fmt::print("result : {}\n\n", num);
 }

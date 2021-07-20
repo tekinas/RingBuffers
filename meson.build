@@ -1,10 +1,11 @@
 project('FunctionQueue','cpp', default_options : ['cpp_std=c++20','cpp_rtti=false','cpp_eh=none','warning_level=3'])
 
 threads = dependency('threads')
+tcmalloc = dependency('tcmalloc')
 fmt = dependency('fmt')
 boost_header_only = dependency('boost')
 
-project_deps = declare_dependency(dependencies:[threads,fmt,boost_header_only]) 
+project_deps = declare_dependency(dependencies : [threads, fmt, boost_header_only, tcmalloc]) 
 
 executable('fq_test_1r_1w', 'src/tests/fq_test_1r_1w.cpp' , dependencies : project_deps)
 executable('fq_test_1r_nw', 'src/tests/fq_test_1r_nw.cpp' , dependencies : project_deps)
