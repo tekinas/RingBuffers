@@ -249,7 +249,7 @@ public:
 
     template<typename T>
     bool push_back(T &&function) noexcept {
-        using Callable = std::decay_t<T>;
+        using Callable = std::remove_cvref_t<T>;
         return emplace_back<Callable>(std::forward<T>(function));
     }
 

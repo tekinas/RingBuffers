@@ -148,7 +148,7 @@ public:
     }
 
     template<typename T>
-    requires std::same_as<std::decay_t<T>, ObjectType>
+    requires std::same_as<std::remove_cvref_t<T>, ObjectType>
     bool push_back(T &&obj) noexcept { return emplace_back(std::forward<T>(obj)); }
 
     template<typename... Args>

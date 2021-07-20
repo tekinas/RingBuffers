@@ -109,13 +109,13 @@ public:
                 });
             } break;
             case 2:
-                push_back(compute_1);
+                push_back(&compute_1);
                 break;
             case 3:
-                push_back(compute_2);
+                push_back(&compute_2);
                 break;
             case 4:
-                push_back(compute_3);
+                push_back(&compute_3);
                 break;
             case 5: {
                 push_back(ComputeFunctor<10>{random});
