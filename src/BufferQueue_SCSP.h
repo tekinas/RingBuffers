@@ -8,6 +8,7 @@
 #include <limits>
 #include <memory>
 #include <span>
+#include <type_traits>
 #include <utility>
 
 #if defined(_MSC_VER)
