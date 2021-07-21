@@ -1,6 +1,4 @@
 #include "../FunctionQueue.h"
-#include "../FunctionQueue_MCSP.h"
-#include "../FunctionQueue_SCSP.h"
 #include "ComputeCallbackGenerator.h"
 #include "util.h"
 
@@ -13,8 +11,6 @@
 
 using ComputeFunctionSig = size_t(size_t);
 using ComputeFunctionQueue = FunctionQueue<ComputeFunctionSig, false>;
-//using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
-//using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
 
 using folly::Function;
 using util::Timer;
