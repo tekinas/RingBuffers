@@ -41,8 +41,9 @@ int main(int argc, char **argv) {
         bool addFunction = true;
         while (addFunction) {
             ++functions;
-            callbackGenerator.addCallback(
-                    [&]<typename T>(T &&t) { addFunction = functionQueue.push_back(std::forward<T>(t)); });
+            callbackGenerator.addCallback(util::overload(
+                    [&]<typename T>(T &&t) { addFunction = functionQueue.push_back(std::forward<T>(t)); },
+                    [&]<ComputeFunctionSig * fp> { addFunction = functionQueue.push_back<fp>(); }));
         }
         --functions;
 

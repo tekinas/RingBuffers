@@ -195,4 +195,17 @@ namespace util {
     };
 }// namespace util
 
+namespace util {
+    template<typename... Bases>
+    class overload : public Bases... {
+    public:
+        using Bases::operator()...;
+
+        template<typename... Obj>
+        explicit overload(Obj &&...obj) : Bases{std::forward<Obj>(obj)}... {}
+    };
+
+    template<class... Bases>
+    overload(Bases...) -> overload<Bases...>;
+}// namespace util
 #endif

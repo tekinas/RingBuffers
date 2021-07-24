@@ -97,32 +97,36 @@ private:
     public:
         Storage() noexcept = default;
 
-        explicit operator bool() const noexcept { return fp_ptr && obj_ptr; }
+        explicit operator bool() const noexcept { return fc_ptr && callable_ptr; }
 
         template<typename Callable, typename... CArgs>
         std::byte *construct(CArgs &&...args) const noexcept {
-            uint16_t const obj_offset = std::bit_cast<std::byte *>(obj_ptr) - std::bit_cast<std::byte *>(fp_ptr);
-            new (fp_ptr)
-                    FunctionContext{Type<Callable>{}, obj_offset, static_cast<uint16_t>(obj_offset + sizeof(Callable))};
-            new (obj_ptr) Callable{std::forward<CArgs>(args)...};
+            constexpr size_t callable_size = std::is_empty_v<Callable> ? 0 : sizeof(Callable);
+            uint16_t const callable_offset =
+                    std::bit_cast<std::byte *>(callable_ptr) - std::bit_cast<std::byte *>(fc_ptr);
+            uint16_t const stride =
+                    std::is_empty_v<Callable> ? sizeof(FunctionContext) : (callable_offset + callable_size);
 
-            return std::bit_cast<std::byte *>(obj_ptr) + sizeof(Callable);
+            new (fc_ptr) FunctionContext{Type<Callable>{}, callable_offset, stride};
+            new (callable_ptr) Callable{std::forward<CArgs>(args)...};
+
+            return std::bit_cast<std::byte *>(fc_ptr) + stride;
         }
 
-        static Storage getAlignedStorage(void *buffer, size_t size, size_t obj_align, size_t obj_size) noexcept {
-            auto const fp_storage = std::align(alignof(FunctionContext), sizeof(FunctionContext), buffer, size);
+        static Storage getAlignedStorage(void *buffer, size_t buffer_size, size_t obj_align, size_t obj_size) noexcept {
+            auto const fc_ptr = std::align(alignof(FunctionContext), sizeof(FunctionContext), buffer, buffer_size);
             buffer = std::bit_cast<std::byte *>(buffer) + sizeof(FunctionContext);
-            size -= sizeof(FunctionContext);
-            auto const callable_storage = std::align(obj_align, obj_size, buffer, size);
-            return {fp_storage, callable_storage};
+            buffer_size -= sizeof(FunctionContext);
+            auto const callable_ptr = std::align(obj_align, obj_size, buffer, buffer_size);
+            return {fc_ptr, callable_ptr};
         }
 
     private:
-        Storage(void *fp_ptr, void *obj_ptr) noexcept
-            : fp_ptr{static_cast<FunctionContext *>(fp_ptr)}, obj_ptr{obj_ptr} {}
+        Storage(void *fc_ptr, void *callable_ptr) noexcept
+            : fc_ptr{static_cast<FunctionContext *>(fc_ptr)}, callable_ptr{callable_ptr} {}
 
-        FunctionContext *const fp_ptr{};
-        void *const obj_ptr{};
+        FunctionContext *const fc_ptr{};
+        void *const callable_ptr{};
     };
 
 public:
@@ -247,10 +251,16 @@ public:
             return FunctionHandle{nullptr};
     }*/
 
+    template<R (*function)(Args...)>
+    bool push_back() noexcept {
+        return push_back([](Args... args) { return function(std::forward<Args>(args)...); });
+    }
+
     template<typename T>
-    bool push_back(T &&function) noexcept {
-        using Callable = std::remove_cvref_t<T>;
-        return emplace_back<Callable>(std::forward<T>(function));
+    bool push_back(T &&callable) noexcept {
+        using NoCVRef_t = std::remove_cvref_t<T>;
+        using Callable = std::conditional_t<std::is_function_v<NoCVRef_t>, std::add_pointer_t<NoCVRef_t>, NoCVRef_t>;
+        return emplace_back<Callable>(std::forward<T>(callable));
     }
 
     template<typename Callable, typename... CArgs>

@@ -109,13 +109,28 @@ public:
                 });
             } break;
             case 2:
-                push_back(&compute_1);
+                if constexpr (requires(T & push_back) {
+                                  { push_back.template operator()<compute_1>() } -> std::same_as<void>;
+                              })
+                    push_back.template operator()<compute_1>();
+                else
+                    push_back(compute_1);
                 break;
             case 3:
-                push_back(&compute_2);
+                if constexpr (requires(T & push_back) {
+                                  { push_back.template operator()<compute_2>() } -> std::same_as<void>;
+                              })
+                    push_back.template operator()<compute_2>();
+                else
+                    push_back(compute_2);
                 break;
             case 4:
-                push_back(&compute_3);
+                if constexpr (requires(T & push_back) {
+                                  { push_back.template operator()<compute_3>() } -> std::same_as<void>;
+                              })
+                    push_back.template operator()<compute_3>();
+                else
+                    push_back(compute_3);
                 break;
             case 5: {
                 push_back(ComputeFunctor<10>{random});
