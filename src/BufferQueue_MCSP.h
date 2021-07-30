@@ -112,7 +112,7 @@ public:
         Buffer(Buffer &&other) noexcept : dataContext{std::exchange(other.dataContext, nullptr)} {}
 
         Buffer &operator=(Buffer &&other) noexcept {
-            this->~Buffer();
+            std::destroy_at(this);
             dataContext = std::exchange(other.dataContext, nullptr);
             return *this;
         }

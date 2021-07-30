@@ -78,7 +78,7 @@ public:
         Buffer(Buffer const &) = delete;
 
         Buffer &operator=(Buffer &&other) noexcept {
-            this->~Buffer();
+            std::destroy_at(this);
             buffer_queue = std::exchange(other.buffer_queue, nullptr);
             return *this;
         }

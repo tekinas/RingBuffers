@@ -57,7 +57,7 @@ public:
         Ptr(Ptr const &) = delete;
 
         Ptr &operator=(Ptr &&other) noexcept {
-            this->~Ptr();
+            std::destroy_at(this);
             object_ptr = std::exchange(other.object_ptr, nullptr);
             return *this;
         }
