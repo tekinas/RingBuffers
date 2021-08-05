@@ -15,6 +15,28 @@
 #define FORCE_INLINE inline __attribute__((always_inline))
 #endif
 
+namespace {
+    template<typename Function>
+    class ScopeGaurd {
+    public:
+        template<typename F>
+        ScopeGaurd(F &&func) : m_Func{std::forward<F>(func)} {}
+
+        void commit() noexcept { m_Commit = true; }
+
+        ~ScopeGaurd() {
+            if (!m_Commit) m_Func();
+        }
+
+    private:
+        Function m_Func;
+        bool m_Commit{false};
+    };
+
+    template<typename Func>
+    ScopeGaurd(Func &&) -> ScopeGaurd<std::decay_t<Func>>;
+}// namespace
+
 template<typename T, bool destroyNonInvoked = true>
 class FunctionQueue {};
 
@@ -37,13 +59,18 @@ private:
         using InvokeAndDestroy = R (*)(void *callable_ptr, Args...) noexcept;
         using Destroy = void (*)(void *callable_ptr) noexcept;
 
-        auto getReadData() const noexcept {
-            return std::tuple{std::bit_cast<InvokeAndDestroy>(getFp(fp_offset)),
-                              std::bit_cast<std::byte *>(this) + callable_offset, getNextAddr()};
+        struct ReadData {
+            InvokeAndDestroy function;
+            void *callable_ptr;
+            std::byte *next_addr;
+        };
+
+        ReadData getReadData() const noexcept {
+            return {std::bit_cast<InvokeAndDestroy>(getFp(fp_offset)),
+                    std::bit_cast<std::byte *>(this) + callable_offset, getNextAddr()};
         }
 
-        template<typename = void>
-        requires(destroyNonInvoked) void destroyFO() const noexcept {
+        void destroyFO() const noexcept {
             std::bit_cast<Destroy>(getFp(destroyFp_offset))(std::bit_cast<std::byte *>(this) + callable_offset);
         }
 
@@ -67,75 +94,71 @@ private:
     public:
         Storage() noexcept = default;
 
-        explicit operator bool() const noexcept { return fc_ptr && callable_ptr; }
+        explicit operator bool() const noexcept { return next_addr; }
 
         template<typename Callable, typename... CArgs>
         std::byte *construct(CArgs &&...args) const noexcept {
-            constexpr size_t callable_size = std::is_empty_v<Callable> ? 0 : sizeof(Callable);
-            uint16_t const callable_offset =
-                    std::bit_cast<std::byte *>(callable_ptr) - std::bit_cast<std::byte *>(fc_ptr);
-            uint16_t const stride =
-                    std::is_empty_v<Callable> ? sizeof(FunctionContext) : (callable_offset + callable_size);
+            uint16_t const callable_offset = callable_ptr - fc_ptr;
+            uint16_t const stride = next_addr - fc_ptr;
 
             new (fc_ptr) FunctionContext{Type<Callable>{}, callable_offset, stride};
             new (callable_ptr) Callable{std::forward<CArgs>(args)...};
 
-            return std::bit_cast<std::byte *>(fc_ptr) + stride;
+            return next_addr;
         }
 
-        static Storage getAlignedStorage(void *buffer, size_t buffer_size, size_t obj_align, size_t obj_size) noexcept {
-            auto const fc_ptr = std::align(alignof(FunctionContext), sizeof(FunctionContext), buffer, buffer_size);
-            buffer = std::bit_cast<std::byte *>(buffer) + sizeof(FunctionContext);
-            buffer_size -= sizeof(FunctionContext);
-            auto const callable_ptr = std::align(obj_align, obj_size, buffer, buffer_size);
-            return {fc_ptr, callable_ptr};
+        template<size_t obj_align, size_t obj_size>
+        static Storage getAlignedStorage(std::byte *buffer_start, std::byte *buffer_end) noexcept {
+            auto const fc_ptr = buffer_start;
+            auto const obj_ptr = align<std::byte, obj_align>(fc_ptr + sizeof(FunctionContext));
+            auto const next_addr = align<std::byte, alignof(FunctionContext)>(obj_ptr + obj_size);
+            return {fc_ptr, obj_ptr, next_addr < buffer_end ? next_addr : nullptr};
         }
 
     private:
-        Storage(void *fc_ptr, void *callable_ptr) noexcept
-            : fc_ptr{static_cast<FunctionContext *>(fc_ptr)}, callable_ptr{callable_ptr} {}
+        Storage(std::byte *fc_ptr, std::byte *callable_ptr, std::byte *next_addr) noexcept
+            : fc_ptr{fc_ptr}, callable_ptr{callable_ptr}, next_addr{next_addr} {}
 
-        FunctionContext *const fc_ptr{};
-        void *const callable_ptr{};
+        std::byte *const fc_ptr{};
+        std::byte *const callable_ptr{};
+        std::byte *const next_addr{};
     };
 
 public:
-    FunctionQueue(std::byte *memory, std::size_t size) noexcept
-        : m_BufferSize{static_cast<uint32_t>(size)}, m_Buffer{memory} {}
+    FunctionQueue(std::byte *buffer, std::size_t size) noexcept
+        : m_InputPos{buffer}, m_OutputPos{buffer}, m_Buffer{buffer}, m_BufferEnd{buffer + size} {}
 
-    uint32_t buffer_size() const noexcept { return m_BufferSize; }
+    std::byte *buffer() const noexcept { return m_Buffer; }
+
+    size_t buffer_size() const noexcept { return m_BufferEnd - m_Buffer; }
 
     void clear() noexcept {
         if constexpr (destroyNonInvoked) destroyAllFO();
 
-        m_InputOffset = 0;
-        m_OutputOffset = 0;
-        m_SentinelRead = NO_SENTINEL;
+        m_InputPos = m_Buffer;
+        m_OutputPos = m_Buffer;
+        m_SentinelRead = nullptr;
     }
 
     ~FunctionQueue() noexcept {
         if constexpr (destroyNonInvoked) destroyAllFO();
     }
 
-    bool empty() const noexcept { return m_InputOffset == m_OutputOffset; }
+    bool empty() const noexcept { return m_InputPos == m_OutputPos; }
 
     FORCE_INLINE R call_and_pop(Args... args) const noexcept {
-        auto const output_offset = m_OutputOffset;
-        bool const found_sentinel = output_offset == m_SentinelRead;
-        if (found_sentinel) { m_SentinelRead = NO_SENTINEL; }
+        auto const output_pos = m_OutputPos;
+        bool const found_sentinel = output_pos == m_SentinelRead;
 
-        auto const functionCxtPtr = align<FunctionContext>(m_Buffer + (found_sentinel ? 0 : output_offset));
-        auto const [invokeAndDestroyFP, objPtr, nextAddr] = functionCxtPtr->getReadData();
-        uint32_t const next_output_offset = nextAddr - m_Buffer;
+        auto const functionCxtPtr = std::bit_cast<FunctionContext *>(found_sentinel ? m_Buffer : output_pos);
+        auto const read_data = functionCxtPtr->getReadData();
 
-        if constexpr (std::is_void_v<R>) {
-            invokeAndDestroyFP(objPtr, args...);
-            m_OutputOffset = next_output_offset;
-        } else {
-            auto &&result{invokeAndDestroyFP(objPtr, args...)};
-            m_OutputOffset = next_output_offset;
-            return std::forward<decltype(result)>(result);
-        }
+        ScopeGaurd const update_state{[&] {
+            if (found_sentinel) m_SentinelRead = nullptr;
+            m_OutputPos = read_data.next_addr;
+        }};
+
+        return read_data.function(read_data.callable_ptr, args...);
     }
 
     template<R (*function)(Args...)>
@@ -145,41 +168,39 @@ public:
 
     template<typename T>
     bool push_back(T &&callable) noexcept {
-        using NoCVRef_t = std::remove_cvref_t<T>;
-        using Callable = std::conditional_t<std::is_function_v<NoCVRef_t>, std::add_pointer_t<NoCVRef_t>, NoCVRef_t>;
+        using Callable = std::decay_t<T>;
         return emplace_back<Callable>(std::forward<T>(callable));
     }
 
     template<typename Callable, typename... CArgs>
     bool emplace_back(CArgs &&...args) noexcept {
-        auto const storage = getStorage(alignof(Callable), sizeof(Callable));
+        constexpr bool is_callable_empty = std::is_empty_v<Callable>;
+        constexpr size_t callable_align = is_callable_empty ? 1 : alignof(Callable);
+        constexpr size_t callable_size = is_callable_empty ? 0 : sizeof(Callable);
+
+        auto const storage = getStorage<callable_align, callable_size>();
         if (!storage) return false;
 
-        uint32_t const next_input_offset =
-                storage.template construct<Callable>(std::forward<CArgs>(args)...) - m_Buffer;
-
-        m_InputOffset = next_input_offset;
+        auto const next_addr = storage.template construct<Callable>(std::forward<CArgs>(args)...);
+        m_InputPos = next_addr;
 
         return true;
     }
 
+    static constexpr inline size_t BUFFER_ALIGNMENT = alignof(FunctionContext);
+
 private:
-    template<typename T>
+    template<typename T, size_t alignment = alignof(T)>
     static constexpr T *align(void const *ptr) noexcept {
-        return std::bit_cast<T *>((std::bit_cast<uintptr_t>(ptr) - 1u + alignof(T)) & -alignof(T));
+        return std::bit_cast<T *>((std::bit_cast<uintptr_t>(ptr) - 1u + alignment) & -alignment);
     }
 
     template<typename Callable>
     static R invokeAndDestroy(void *data, Args... args) noexcept {
         auto const functor_ptr = static_cast<Callable *>(data);
-        if constexpr (std::is_void_v<R>) {
-            (*functor_ptr)(std::forward<Args>(args)...);
-            std::destroy_at(functor_ptr);
-        } else {
-            auto &&result{(*functor_ptr)(std::forward<Args>(args)...)};
-            std::destroy_at(functor_ptr);
-            return std::forward<decltype(result)>(result);
-        }
+        ScopeGaurd const destroy_functor{[&] { std::destroy_at(functor_ptr); }};
+
+        return (*functor_ptr)(std::forward<Args>(args)...);
     }
 
     template<typename Callable>
@@ -187,47 +208,44 @@ private:
         std::destroy_at(static_cast<Callable *>(data));
     }
 
-    template<typename = void>
-    requires(destroyNonInvoked) void destroyAllFO() {
-        auto const input_offset = m_InputOffset;
-        auto output_offset = m_OutputOffset;
+    void destroyAllFO() {
+        auto const input_pos = m_InputPos;
+        auto output_pos = m_OutputPos;
 
-        auto destroyAndGetNext = [this](uint32_t offset) {
-            auto const functionCxtPtr = align<FunctionContext>(m_Buffer + offset);
+        auto destroyAndGetNextPos = [](auto pos) {
+            auto const functionCxtPtr = std::bit_cast<FunctionContext *>(pos);
             functionCxtPtr->destroyFO();
-            return functionCxtPtr->getNextAddr() - m_Buffer;
+            return functionCxtPtr->getNextAddr();
         };
 
-        if (input_offset == output_offset) return;
-        else if (output_offset > input_offset) {
+        if (input_pos == output_pos) return;
+        else if (output_pos > input_pos) {
             auto const sentinel = m_SentinelRead;
-            while (output_offset != sentinel) { output_offset = destroyAndGetNext(output_offset); }
-            output_offset = 0;
+            while (output_pos != sentinel) { output_pos = destroyAndGetNextPos(output_pos); }
+            output_pos = m_Buffer;
         }
 
-        while (output_offset != input_offset) { output_offset = destroyAndGetNext(output_offset); }
+        while (output_pos != input_pos) { output_pos = destroyAndGetNextPos(output_pos); }
     }
 
-    FORCE_INLINE Storage getStorage(size_t obj_align, size_t const obj_size) noexcept {
-        auto const input_offset = m_InputOffset;
-        auto const output_offset = m_OutputOffset;
+    template<size_t obj_align, size_t obj_size>
+    FORCE_INLINE Storage getStorage() noexcept {
+        auto const input_pos = m_InputPos;
+        auto const output_pos = m_OutputPos;
+        auto const buffer_start = m_Buffer;
 
-        if (input_offset >= output_offset) {
-            if (auto const storage = Storage::getAlignedStorage(m_Buffer + input_offset,
-                                                                m_BufferSize - input_offset - 1, obj_align, obj_size)) {
+        constexpr auto getAlignedStorage = Storage::template getAlignedStorage<obj_align, obj_size>;
+
+        if (input_pos >= output_pos) {
+            if (auto const storage = getAlignedStorage(input_pos, m_BufferEnd)) {
                 return storage;
-            }
-
-            if (output_offset) {
-                if (auto const storage = Storage::getAlignedStorage(m_Buffer, output_offset - 1, obj_align, obj_size)) {
-                    m_SentinelRead = input_offset;
-                    return storage;
-                }
-            }
-            return {};
+            } else if (auto const storage = getAlignedStorage(buffer_start, output_pos)) {
+                m_SentinelRead = input_pos;
+                return storage;
+            } else
+                return {};
         } else
-            return Storage::getAlignedStorage(m_Buffer + input_offset, output_offset - input_offset - 1, obj_align,
-                                              obj_size);
+            return getAlignedStorage(input_pos, output_pos);
     }
 
     static void fp_base_func() noexcept {}
@@ -246,12 +264,12 @@ private:
 private:
     static constexpr uint32_t NO_SENTINEL{std::numeric_limits<uint32_t>::max()};
 
-    uint32_t m_InputOffset{0};
-    mutable uint32_t m_OutputOffset{0};
-    mutable uint32_t m_SentinelRead{NO_SENTINEL};
+    std::byte *m_InputPos;
+    mutable std::byte *m_OutputPos;
+    mutable std::byte *m_SentinelRead{};
 
-    uint32_t const m_BufferSize;
     std::byte *const m_Buffer;
+    std::byte *const m_BufferEnd;
 };
 
 #endif

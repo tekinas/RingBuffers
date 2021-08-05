@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <folly/Function.h>
+#include <random>
 
 #define FMT_HEADER_ONLY
 #include <fmt/format.h>
@@ -23,7 +24,7 @@ int main(int argc, char **argv) {
     size_t const functionQueueBufferSize = [&] { return (argc >= 2) ? atof(argv[1]) : 500.0; }() * 1024 * 1024;
     fmt::print("buffer size : {}\n", functionQueueBufferSize);
 
-    size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
+    size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : std::random_device{}(); }();
     fmt::print("seed : {}\n", seed);
 
     std::vector<Function<ComputeFunctionSig>> computeVector{};

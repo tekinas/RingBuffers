@@ -4,8 +4,10 @@
 #include "util.h"
 #include <boost/container_hash/hash.hpp>
 #include <boost/container_hash/hash_fwd.hpp>
+#include <boost/random/mersenne_twister.hpp>
 
 using util::Random;
+using RNG = Random<boost::random::mt19937_64>;
 
 inline size_t compute_1(size_t num) {
     boost::hash_combine(num, 2323442);
@@ -30,7 +32,7 @@ private:
     size_t data[fields];
 
 public:
-    explicit ComputeFunctor(Random<std::mt19937_64> &rng) noexcept {
+    explicit ComputeFunctor(RNG &rng) noexcept {
         rng.setRand<size_t>(0, std::numeric_limits<size_t>::max(), std::span{data});
     }
 
@@ -47,7 +49,7 @@ private:
     uint16_t data2[fields];
 
 public:
-    explicit ComputeFunctor2(Random<std::mt19937_64> &rng) {
+    explicit ComputeFunctor2(RNG &rng) {
         rng.setRand<size_t>(0, std::numeric_limits<size_t>::max(), std::span{data});
         rng.setRand<uint16_t>(0, std::numeric_limits<uint16_t>::max(), std::span{data2});
     }
@@ -60,7 +62,7 @@ public:
 };
 
 class CallbackGenerator {
-    Random<std::mt19937_64> random;
+    RNG random;
 
 public:
     explicit CallbackGenerator(size_t seed) : random{seed} {}

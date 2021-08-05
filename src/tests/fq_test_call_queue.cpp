@@ -1,6 +1,4 @@
 #include "../FunctionQueue.h"
-#include "../FunctionQueue_MCSP.h"
-#include "../FunctionQueue_SCSP.h"
 #include "ComputeCallbackGenerator.h"
 #include "util.h"
 
@@ -12,8 +10,6 @@
 
 using ComputeFunctionSig = size_t(size_t);
 using ComputeFunctionQueue = FunctionQueue<ComputeFunctionSig, false>;
-//using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
-//using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false, false>;
 
 using folly::Function;
 using util::Timer;
@@ -26,7 +22,7 @@ int main(int argc, char **argv) {
     size_t const functionBufferSize = [&] { return (argc >= 2) ? atof(argv[1]) : 500.0; }() * 1024 * 1024;
     fmt::print("buffer size : {}\n", functionBufferSize);
 
-    size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
+    size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : std::random_device{}(); }();
     fmt::print("seed : {}\n", seed);
 
     std::queue<Function<ComputeFunctionSig>> computeQueue;
