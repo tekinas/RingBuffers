@@ -2,9 +2,11 @@
 #include "ComputeCallbackGenerator.h"
 #include "util.h"
 
+#include <bit>
 #include <chrono>
 #include <folly/Function.h>
 #include <random>
+#include <type_traits>
 
 #define FMT_HEADER_ONLY
 #include <fmt/format.h>
@@ -32,8 +34,10 @@ int main(int argc, char **argv) {
 
     CallbackGenerator callbackGenerator{seed};
 
-    auto const functionQueueBuffer = std::make_unique<std::byte[]>(functionQueueBufferSize);
-    ComputeFunctionQueue functionQueue{functionQueueBuffer.get(), functionQueueBufferSize};
+    auto const functionQueueBuffer =
+            std::make_unique<std::aligned_storage_t<ComputeFunctionQueue::BUFFER_ALIGNMENT, sizeof(std::byte)>[]>(
+                    functionQueueBufferSize);
+    ComputeFunctionQueue functionQueue{std::bit_cast<std::byte *>(functionQueueBuffer.get()), functionQueueBufferSize};
 
     size_t const compute_functors = [&] {
         Timer timer{"function queue write time"};

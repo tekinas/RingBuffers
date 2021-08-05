@@ -9,13 +9,7 @@
 #include <type_traits>
 #include <utility>
 
-#if defined(_MSC_VER)
-#define FORCE_INLINE __forceinline
-#else
-#define FORCE_INLINE inline __attribute__((always_inline))
-#endif
-
-namespace {
+namespace fq_detail {
     template<typename Function>
     class ScopeGaurd {
     public:
@@ -35,14 +29,8 @@ namespace {
 
     template<typename Func>
     ScopeGaurd(Func &&) -> ScopeGaurd<std::decay_t<Func>>;
-}// namespace
 
-template<typename T, bool destroyNonInvoked = true>
-class FunctionQueue {};
 
-template<typename R, typename... Args, bool destroyNonInvoked>
-class FunctionQueue<R(Args...), destroyNonInvoked> {
-private:
     class Empty {
     public:
         template<typename... T>
@@ -52,6 +40,14 @@ private:
     template<typename>
     class Type {};
 
+}// namespace fq_detail
+
+template<typename T, bool destroyNonInvoked = true>
+class FunctionQueue {};
+
+template<typename R, typename... Args, bool destroyNonInvoked>
+class FunctionQueue<R(Args...), destroyNonInvoked> {
+private:
     class Storage;
 
     class FunctionContext {
@@ -66,24 +62,27 @@ private:
         };
 
         ReadData getReadData() const noexcept {
-            return {std::bit_cast<InvokeAndDestroy>(getFp(fp_offset)),
-                    std::bit_cast<std::byte *>(this) + callable_offset, getNextAddr()};
+            auto const this_ = std::bit_cast<std::byte *>(this);
+            auto const function = std::bit_cast<InvokeAndDestroy>(getFp(fp_offset));
+            return {function, this_ + callable_offset, this_ + stride};
         }
 
-        void destroyFO() const noexcept {
-            std::bit_cast<Destroy>(getFp(destroyFp_offset))(std::bit_cast<std::byte *>(this) + callable_offset);
-        }
+        std::byte *destroyFO() const noexcept {
+            auto const this_ = std::bit_cast<std::byte *>(this);
+            auto const destroy_functor = std::bit_cast<Destroy>(getFp(destroyFp_offset));
 
-        std::byte *getNextAddr() const noexcept { return std::bit_cast<std::byte *>(this) + stride; }
+            destroy_functor(this_ + callable_offset);
+            return this_ + stride;
+        }
 
     private:
         template<typename Callable>
-        FunctionContext(Type<Callable>, uint16_t callable_offset, uint16_t stride) noexcept
+        FunctionContext(fq_detail::Type<Callable>, uint16_t callable_offset, uint16_t stride) noexcept
             : fp_offset{getFpOffset(&invokeAndDestroy<Callable>)}, destroyFp_offset{getFpOffset(&destroy<Callable>)},
               callable_offset{callable_offset}, stride{stride} {}
 
         uint32_t const fp_offset;
-        [[no_unique_address]] std::conditional_t<destroyNonInvoked, uint32_t const, Empty> destroyFp_offset;
+        [[no_unique_address]] std::conditional_t<destroyNonInvoked, uint32_t const, fq_detail::Empty> destroyFp_offset;
         uint16_t const callable_offset;
         uint16_t const stride;
 
@@ -101,7 +100,7 @@ private:
             uint16_t const callable_offset = callable_ptr - fc_ptr;
             uint16_t const stride = next_addr - fc_ptr;
 
-            new (fc_ptr) FunctionContext{Type<Callable>{}, callable_offset, stride};
+            new (fc_ptr) FunctionContext{fq_detail::Type<Callable>{}, callable_offset, stride};
             new (callable_ptr) Callable{std::forward<CArgs>(args)...};
 
             return next_addr;
@@ -146,14 +145,14 @@ public:
 
     bool empty() const noexcept { return m_InputPos == m_OutputPos; }
 
-    FORCE_INLINE R call_and_pop(Args... args) const noexcept {
+    R call_and_pop(Args... args) const noexcept {
         auto const output_pos = m_OutputPos;
         bool const found_sentinel = output_pos == m_SentinelRead;
 
         auto const functionCxtPtr = std::bit_cast<FunctionContext *>(found_sentinel ? m_Buffer : output_pos);
         auto const read_data = functionCxtPtr->getReadData();
 
-        ScopeGaurd const update_state{[&] {
+        fq_detail::ScopeGaurd const update_state{[&] {
             if (found_sentinel) m_SentinelRead = nullptr;
             m_OutputPos = read_data.next_addr;
         }};
@@ -198,7 +197,7 @@ private:
     template<typename Callable>
     static R invokeAndDestroy(void *data, Args... args) noexcept {
         auto const functor_ptr = static_cast<Callable *>(data);
-        ScopeGaurd const destroy_functor{[&] { std::destroy_at(functor_ptr); }};
+        fq_detail::ScopeGaurd const destroy_functor{[&] { std::destroy_at(functor_ptr); }};
 
         return (*functor_ptr)(std::forward<Args>(args)...);
     }
@@ -209,14 +208,13 @@ private:
     }
 
     void destroyAllFO() {
-        auto const input_pos = m_InputPos;
-        auto output_pos = m_OutputPos;
-
         auto destroyAndGetNextPos = [](auto pos) {
             auto const functionCxtPtr = std::bit_cast<FunctionContext *>(pos);
-            functionCxtPtr->destroyFO();
-            return functionCxtPtr->getNextAddr();
+            return functionCxtPtr->destroyFO();
         };
+
+        auto const input_pos = m_InputPos;
+        auto output_pos = m_OutputPos;
 
         if (input_pos == output_pos) return;
         else if (output_pos > input_pos) {
@@ -229,7 +227,7 @@ private:
     }
 
     template<size_t obj_align, size_t obj_size>
-    FORCE_INLINE Storage getStorage() noexcept {
+    Storage getStorage() noexcept {
         auto const input_pos = m_InputPos;
         auto const output_pos = m_OutputPos;
         auto const buffer_start = m_Buffer;

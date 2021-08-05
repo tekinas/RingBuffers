@@ -19,8 +19,8 @@ size_t *bytes_allocated = nullptr;
 int main(int argc, char **argv) {
     if (argc == 1) { fmt::print("usage : ./fq_test_call_and_pop <buffer_size> <seed>\n"); }
 
-    size_t const functionBufferSize = [&] { return (argc >= 2) ? atof(argv[1]) : 500.0; }() * 1024 * 1024;
-    fmt::print("buffer size : {}\n", functionBufferSize);
+    size_t const functionQueueBufferSize = [&] { return (argc >= 2) ? atof(argv[1]) : 500.0; }() * 1024 * 1024;
+    fmt::print("buffer size : {}\n", functionQueueBufferSize);
 
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : std::random_device{}(); }();
     fmt::print("seed : {}\n", seed);
@@ -30,8 +30,10 @@ int main(int argc, char **argv) {
 
     CallbackGenerator callbackGenerator{seed};
 
-    auto const functionBuffer = std::make_unique<std::byte[]>(functionBufferSize);
-    ComputeFunctionQueue functionQueue{functionBuffer.get(), functionBufferSize};
+    auto const functionQueueBuffer =
+            std::make_unique<std::aligned_storage_t<ComputeFunctionQueue::BUFFER_ALIGNMENT, sizeof(std::byte)>[]>(
+                    functionQueueBufferSize);
+    ComputeFunctionQueue functionQueue{std::bit_cast<std::byte *>(functionQueueBuffer.get()), functionQueueBufferSize};
 
     size_t computeDequeueStorage{0}, computeStdDequeueStorage{0};
 
@@ -73,7 +75,7 @@ int main(int argc, char **argv) {
 
     fmt::print("\ncompute functions : {}\n", compute_functors);
     constexpr double ONE_MiB = 1024.0 * 1024.0;
-    fmt::print("function queue memory : {} MiB\n", functionBufferSize / ONE_MiB);
+    fmt::print("function queue memory : {} MiB\n", functionQueueBufferSize / ONE_MiB);
     fmt::print("std::dequeue<folly::Function> memory : {} MiB\n", computeDequeueStorage / ONE_MiB);
     fmt::print("std::dequeue<std::function> memory : {} MiB\n\n", computeStdDequeueStorage / ONE_MiB);
 
