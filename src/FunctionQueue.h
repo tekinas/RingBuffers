@@ -124,7 +124,7 @@ private:
     };
 
 public:
-    FunctionQueue(std::byte *buffer, std::size_t size) noexcept
+    FunctionQueue(std::byte *buffer, size_t size) noexcept
         : m_InputPos{buffer}, m_OutputPos{buffer}, m_Buffer{buffer}, m_BufferEnd{buffer + size} {}
 
     std::byte *buffer() const noexcept { return m_Buffer; }
@@ -157,7 +157,7 @@ public:
             m_OutputPos = read_data.next_addr;
         }};
 
-        return read_data.function(read_data.callable_ptr, args...);
+        return read_data.function(read_data.callable_ptr, std::forward<Args>(args)...);
     }
 
     template<R (*function)(Args...)>
@@ -231,11 +231,12 @@ private:
         auto const input_pos = m_InputPos;
         auto const output_pos = m_OutputPos;
         auto const buffer_start = m_Buffer;
+        auto const buffer_end = m_BufferEnd;
 
         constexpr auto getAlignedStorage = Storage::template getAlignedStorage<obj_align, obj_size>;
 
         if (input_pos >= output_pos) {
-            if (auto const storage = getAlignedStorage(input_pos, m_BufferEnd)) {
+            if (auto const storage = getAlignedStorage(input_pos, buffer_end)) {
                 return storage;
             } else if (auto const storage = getAlignedStorage(buffer_start, output_pos)) {
                 m_SentinelRead = input_pos;
@@ -260,8 +261,6 @@ private:
     }
 
 private:
-    static constexpr uint32_t NO_SENTINEL{std::numeric_limits<uint32_t>::max()};
-
     std::byte *m_InputPos;
     mutable std::byte *m_OutputPos;
     mutable std::byte *m_SentinelRead{};

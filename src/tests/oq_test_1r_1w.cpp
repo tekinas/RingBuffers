@@ -10,7 +10,6 @@
 #include <bit>
 #include <boost/container_hash/hash.hpp>
 #include <boost/lockfree/spsc_queue.hpp>
-#include <deque>
 #include <limits>
 #include <span>
 #include <type_traits>
@@ -26,9 +25,10 @@ using util::Timer;
 
 class Obj {
 public:
+    using RNG = Random<boost::random::mt19937_64>;
     Obj() noexcept = default;
 
-    explicit Obj(Random<> &rng) noexcept
+    explicit Obj(RNG &rng) noexcept
         : a{rng.getRand<uint64_t>(std::numeric_limits<uint64_t>::min() + 1, std::numeric_limits<uint64_t>::max())},
           b{rng.getRand<float>(std::numeric_limits<float>::min(), std::numeric_limits<float>::max())},
           c{rng.getRand<uint32_t>(std::numeric_limits<uint32_t>::min(), std::numeric_limits<uint32_t>::max())} {}
@@ -65,7 +65,7 @@ using BufferQueueSCSP = BufferQueue_SCSP<false, false, alignof(Obj)>;
 using BufferQueueMCSP = BufferQueue_MCSP<false, alignof(Obj)>;
 
 void test(boost_queue &objectQueue, uint32_t objects, size_t seed) noexcept {
-    auto rng = Random<>{seed};
+    auto rng = Obj::RNG{seed};
     StartFlag start_flag;
 
     std::jthread writer{[&objectQueue, &rng, &start_flag, objects]() mutable {
@@ -99,10 +99,9 @@ void test(boost_queue &objectQueue, uint32_t objects, size_t seed) noexcept {
 }
 
 template<typename ObjectQueue>
-requires std::same_as<std::remove_cv_t<ObjectQueue>, ObjectQueueSCSP> ||
-        std::same_as<std::remove_cv_t<ObjectQueue>, ObjectQueueMCSP>
+requires std::same_as<ObjectQueue, ObjectQueueSCSP> || std::same_as<ObjectQueue, ObjectQueueMCSP>
 void test(ObjectQueue &objectQueue, uint32_t objects, size_t seed) noexcept {
-    auto rng = Random<>{seed};
+    auto rng = Obj::RNG{seed};
     StartFlag start_flag;
 
     std::jthread writer{[&objectQueue, &rng, &start_flag, objects]() mutable {
@@ -130,19 +129,14 @@ void test(ObjectQueue &objectQueue, uint32_t objects, size_t seed) noexcept {
 
             auto obj = objects;
             while (obj) {
-                if constexpr (std::is_same_v<std::remove_cvref_t<ObjectQueue>, ObjectQueueSCSP>) {
+                if constexpr (std::is_same_v<ObjectQueue, ObjectQueueSCSP>) {
                     while (!objectQueue.reserve()) std::this_thread::yield();
                     auto const consumed = objectQueue.consume_all([&](Obj const &obj) { obj(seed); });
                     obj -= consumed;
                 } else {
-                    /*auto const consumed = objectQueue.consume_all([&](Obj const &obj) { obj(seed); });
+                    auto const consumed = objectQueue.consume_all([&](Obj const &obj) { obj(seed); });
                     if (consumed) obj -= consumed;
                     else
-                        std::this_thread::yield();*/
-                    if (auto ptr = objectQueue.consume()) {
-                        (*ptr)(seed);
-                        --obj;
-                    } else
                         std::this_thread::yield();
                 }
             }
@@ -155,10 +149,9 @@ void test(ObjectQueue &objectQueue, uint32_t objects, size_t seed) noexcept {
 }
 
 template<typename FunctionQueue>
-requires std::same_as<std::remove_cv_t<FunctionQueue>, FunctionQueueSCSP> ||
-        std::same_as<std::remove_cv_t<FunctionQueue>, FunctionQueueMCSP>
+requires std::same_as<FunctionQueue, FunctionQueueSCSP> || std::same_as<FunctionQueue, FunctionQueueMCSP>
 void test(FunctionQueue &functionQueue, uint32_t objects, size_t seed) noexcept {
-    auto rng = Random<>{seed};
+    auto rng = Obj::RNG{seed};
     StartFlag start_flag;
 
     std::jthread writer{[&functionQueue, &rng, &start_flag, objects]() mutable {
@@ -180,7 +173,7 @@ void test(FunctionQueue &functionQueue, uint32_t objects, size_t seed) noexcept 
 
             auto obj = objects;
             while (obj) {
-                if constexpr (std::is_same_v<std::remove_cvref_t<FunctionQueue>, FunctionQueueSCSP>) {
+                if constexpr (std::is_same_v<FunctionQueue, FunctionQueueSCSP>) {
                     while (!functionQueue.reserve()) std::this_thread::yield();
                     functionQueue.call_and_pop(seed);
                     --obj;
@@ -201,10 +194,9 @@ void test(FunctionQueue &functionQueue, uint32_t objects, size_t seed) noexcept 
 }
 
 template<typename BufferQueue>
-requires std::same_as<std::remove_cv_t<BufferQueue>, BufferQueueSCSP> ||
-        std::same_as<std::remove_cv_t<BufferQueue>, BufferQueueMCSP>
+requires std::same_as<BufferQueue, BufferQueueSCSP> || std::same_as<BufferQueue, BufferQueueMCSP>
 void test(BufferQueue &bufferQueue, uint32_t objects, size_t seed) noexcept {
-    auto rng = Random<>{seed};
+    auto rng = Obj::RNG{seed};
     StartFlag start_flag;
 
     std::jthread writer{[&bufferQueue, &rng, &start_flag, objects]() mutable {
@@ -234,24 +226,24 @@ void test(BufferQueue &bufferQueue, uint32_t objects, size_t seed) noexcept {
         size_t seed{0};
         {
             Timer timer{"read time "};
+            auto getSpan = []<typename T>(std::span<std::byte> span) {
+                return std::span{reinterpret_cast<T *>(span.data()), span.size() / sizeof(T)};
+            };
+
+            auto compute = [&seed, &getSpan](std::span<std::byte> buffer) {
+                auto const obj_span = getSpan.template operator()<Obj>(buffer);
+                for (auto &object : obj_span) object(seed);
+                return obj_span.size();
+            };
 
             auto obj = objects;
             while (obj) {
-                if constexpr (std::is_same_v<std::remove_cvref_t<BufferQueue>, BufferQueueSCSP>) {
+                if constexpr (std::is_same_v<BufferQueue, BufferQueueSCSP>) {
                     while (!bufferQueue.reserve()) std::this_thread::yield();
-                    bufferQueue.consume_all([&](std::span<std::byte> buffer) {
-                        auto const obj_span =
-                                std::span{std::bit_cast<Obj *>(buffer.data()), buffer.size() / sizeof(Obj)};
-                        for (auto &object : obj_span) object(seed);
-                        obj -= obj_span.size();
-                    });
+                    bufferQueue.consume_all([&](std::span<std::byte> buffer) { obj -= compute(buffer); });
                 } else {
                     if (auto data_buffer = bufferQueue.consume()) {
-                        auto const buffer = data_buffer.get();
-                        auto const obj_span =
-                                std::span{std::bit_cast<Obj *>(buffer.data()), buffer.size() / sizeof(Obj)};
-                        for (auto &object : obj_span) object(seed);
-                        obj -= obj_span.size();
+                        obj -= compute(data_buffer.get());
                     } else
                         std::this_thread::yield();
                 }

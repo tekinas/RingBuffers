@@ -2,6 +2,7 @@
 #include "../FunctionQueue_SCSP.h"
 #include "ComputeCallbackGenerator.h"
 #include "util.h"
+#include <random>
 
 #define FMT_HEADER_ONLY
 #include <fmt/format.h>
@@ -24,10 +25,10 @@ int main(int argc, char **argv) {
 
     fmt::print("buffer size : {}\n", rawQueueMemSize);
 
-    size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
+    size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : std::random_device{}(); }();
     fmt::print("seed : {}\n", seed);
 
-    size_t const functions = [&] { return (argc >= 4) ? atol(argv[3]) : 12639182; }();
+    size_t const functions = [&] { return (argc >= 4) ? atol(argv[3]) : 20'000'000; }();
     fmt::print("functions : {}\n", functions);
 
     auto const rawQueueMem = std::make_unique<std::byte[]>(rawQueueMemSize);

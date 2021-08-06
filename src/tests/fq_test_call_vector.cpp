@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
 
     callbackGenerator.setSeed(seed);
     {
-        Timer timer{"vector of functions write time"};
+        Timer timer{"vector of folly::Functions write time"};
         bytes_allocated = &computeVectorStorage;
         computeVector.reserve(compute_functors);
 
@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
 
     callbackGenerator.setSeed(seed);
     {
-        Timer timer{"vector of std functions write time"};
+        Timer timer{"vector of std::functions write time"};
         bytes_allocated = &computeStdVectorStorage;
         computeStdVector.reserve(compute_functors);
 
@@ -80,20 +80,20 @@ int main(int argc, char **argv) {
         }
     }
 
-    fmt::print("\ncompute functions : {}\n", compute_functors);
+    fmt::print("\ncompute functions : {}\n\n", compute_functors);
 
     constexpr double ONE_MiB = 1024.0 * 1024.0;
-    fmt::print("function queue memory : {} MiB\n", functionQueueBufferSize / ONE_MiB);
     fmt::print("std::vector<folly::Function> memory : {} MiB\n", computeVectorStorage / ONE_MiB);
-    fmt::print("std::vector<std::function> memory : {} MiB\n\n", computeStdVectorStorage / ONE_MiB);
+    fmt::print("std::vector<std::function> memory : {} MiB\n", computeStdVectorStorage / ONE_MiB);
+    fmt::print("function queue memory : {} MiB\n\n", functionQueueBufferSize / ONE_MiB);
 
     void test(ComputeFunctionQueue &) noexcept;
     void test(std::vector<Function<ComputeFunctionSig>> &) noexcept;
     void test(std::vector<std::function<ComputeFunctionSig>> &) noexcept;
 
-    test(functionQueue);
     test(computeVector);
     test(computeStdVector);
+    test(functionQueue);
 }
 
 void test(ComputeFunctionQueue &functionQueue) noexcept {
@@ -121,7 +121,7 @@ void test(std::vector<Function<ComputeFunctionSig>> &vectorComputeQueue) noexcep
 void test(std::vector<std::function<ComputeFunctionSig>> &vectorStdComputeQueue) noexcept {
     size_t num = 0;
     {
-        Timer timer{"std::vector of std function"};
+        Timer timer{"std::vector of std::function"};
 
         for (auto &function : vectorStdComputeQueue) {
             num = function(num);
