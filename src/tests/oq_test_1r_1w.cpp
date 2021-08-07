@@ -1,6 +1,6 @@
 #include "../BufferQueue_MCSP.h"
 #include "../BufferQueue_SCSP.h"
-#include "../FunctionQueue_MCSP.h"
+#include "../FunctionQueue_MCSP_.h"
 #include "../FunctionQueue_SCSP.h"
 #include "../ObjectQueue_MCSP.h"
 #include "../ObjectQueue_SCSP.h"
@@ -78,10 +78,9 @@ void test(boost_queue &objectQueue, uint32_t objects, size_t seed) noexcept {
         }
     }};
 
-    std::jthread reader{[&objectQueue, &start_flag, objects] {
+    std::jthread reader{[&objectQueue, &start_flag, objects, seed]() mutable {
         start_flag.wait();
 
-        size_t seed{0};
         {
             Timer timer{"read time "};
 
@@ -120,10 +119,9 @@ void test(ObjectQueue &objectQueue, uint32_t objects, size_t seed) noexcept {
         }
     }};
 
-    std::jthread reader{[&objectQueue, &start_flag, objects] {
+    std::jthread reader{[&objectQueue, &start_flag, objects, seed]() mutable {
         start_flag.wait();
 
-        size_t seed{0};
         {
             Timer timer{"read time "};
 
@@ -164,10 +162,9 @@ void test(FunctionQueue &functionQueue, uint32_t objects, size_t seed) noexcept 
         }
     }};
 
-    std::jthread reader{[&functionQueue, &start_flag, objects] {
+    std::jthread reader{[&functionQueue, &start_flag, objects, seed]() mutable {
         start_flag.wait();
 
-        size_t seed{0};
         {
             Timer timer{"read time "};
 
@@ -220,10 +217,9 @@ void test(BufferQueue &bufferQueue, uint32_t objects, size_t seed) noexcept {
         }
     }};
 
-    std::jthread reader{[&bufferQueue, &start_flag, objects] {
+    std::jthread reader{[&bufferQueue, &start_flag, objects, seed]() mutable {
         start_flag.wait();
 
-        size_t seed{0};
         {
             Timer timer{"read time "};
             auto getSpan = []<typename T>(std::span<std::byte> span) {
@@ -262,7 +258,7 @@ int main(int argc, char **argv) {
     size_t const capacity = [&] { return (argc >= 2) ? atol(argv[1]) : 100'000; }();
     fmt::print("capacity : {}\n", capacity);
 
-    size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : 100; }();
+    size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : std::random_device{}(); }();
     fmt::print("seed : {}\n", seed);
 
     size_t const objects = [&] { return (argc >= 4) ? atol(argv[3]) : 100'000'000; }();

@@ -1,6 +1,7 @@
 #ifndef FUNCTIONQUEUE
 #define FUNCTIONQUEUE
 
+#include "rb_detail.h"
 #include <bit>
 #include <cstddef>
 #include <cstdint>
@@ -8,39 +9,6 @@
 #include <memory>
 #include <type_traits>
 #include <utility>
-
-namespace fq_detail {
-    template<typename Function>
-    class ScopeGaurd {
-    public:
-        template<typename F>
-        ScopeGaurd(F &&func) : m_Func{std::forward<F>(func)} {}
-
-        void commit() noexcept { m_Commit = true; }
-
-        ~ScopeGaurd() {
-            if (!m_Commit) m_Func();
-        }
-
-    private:
-        Function m_Func;
-        bool m_Commit{false};
-    };
-
-    template<typename Func>
-    ScopeGaurd(Func &&) -> ScopeGaurd<std::decay_t<Func>>;
-
-
-    class Empty {
-    public:
-        template<typename... T>
-        explicit Empty(T &&...) noexcept {}
-    };
-
-    template<typename>
-    class Type {};
-
-}// namespace fq_detail
 
 template<typename T, bool destroyNonInvoked = true>
 class FunctionQueue {};
@@ -77,12 +45,12 @@ private:
 
     private:
         template<typename Callable>
-        FunctionContext(fq_detail::Type<Callable>, uint16_t callable_offset, uint16_t stride) noexcept
+        FunctionContext(rb_detail::Type<Callable>, uint16_t callable_offset, uint16_t stride) noexcept
             : fp_offset{getFpOffset(&invokeAndDestroy<Callable>)}, destroyFp_offset{getFpOffset(&destroy<Callable>)},
               callable_offset{callable_offset}, stride{stride} {}
 
         uint32_t const fp_offset;
-        [[no_unique_address]] std::conditional_t<destroyNonInvoked, uint32_t const, fq_detail::Empty> destroyFp_offset;
+        [[no_unique_address]] std::conditional_t<destroyNonInvoked, uint32_t const, rb_detail::Empty> destroyFp_offset;
         uint16_t const callable_offset;
         uint16_t const stride;
 
@@ -100,7 +68,7 @@ private:
             uint16_t const callable_offset = callable_ptr - fc_ptr;
             uint16_t const stride = next_addr - fc_ptr;
 
-            new (fc_ptr) FunctionContext{fq_detail::Type<Callable>{}, callable_offset, stride};
+            new (fc_ptr) FunctionContext{rb_detail::Type<Callable>{}, callable_offset, stride};
             new (callable_ptr) Callable{std::forward<CArgs>(args)...};
 
             return next_addr;
@@ -152,7 +120,7 @@ public:
         auto const functionCxtPtr = std::bit_cast<FunctionContext *>(found_sentinel ? m_Buffer : output_pos);
         auto const read_data = functionCxtPtr->getReadData();
 
-        fq_detail::ScopeGaurd const update_state{[&] {
+        rb_detail::ScopeGaurd const update_state{[&] {
             if (found_sentinel) m_SentinelRead = nullptr;
             m_OutputPos = read_data.next_addr;
         }};
@@ -197,7 +165,7 @@ private:
     template<typename Callable>
     static R invokeAndDestroy(void *data, Args... args) noexcept {
         auto const functor_ptr = static_cast<Callable *>(data);
-        fq_detail::ScopeGaurd const destroy_functor{[&] { std::destroy_at(functor_ptr); }};
+        rb_detail::ScopeGaurd const destroy_functor{[&] { std::destroy_at(functor_ptr); }};
 
         return (*functor_ptr)(std::forward<Args>(args)...);
     }

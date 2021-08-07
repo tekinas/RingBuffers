@@ -1,6 +1,7 @@
 #ifndef FUNCTIONQUEUE_SCSP
 #define FUNCTIONQUEUE_SCSP
 
+#include "rb_detail.h"
 #include <atomic>
 #include <bit>
 #include <cstddef>
@@ -9,39 +10,6 @@
 #include <memory>
 #include <type_traits>
 #include <utility>
-
-namespace fq_detail {
-    template<typename Function>
-    class ScopeGaurd {
-    public:
-        template<typename F>
-        ScopeGaurd(F &&func) : m_Func{std::forward<F>(func)} {}
-
-        void commit() noexcept { m_Commit = true; }
-
-        ~ScopeGaurd() {
-            if (!m_Commit) m_Func();
-        }
-
-    private:
-        Function m_Func;
-        bool m_Commit{false};
-    };
-
-    template<typename Func>
-    ScopeGaurd(Func &&) -> ScopeGaurd<std::decay_t<Func>>;
-
-
-    class Empty {
-    public:
-        template<typename... T>
-        explicit Empty(T &&...) noexcept {}
-    };
-
-    template<typename>
-    class Type {};
-
-}// namespace fq_detail
 
 template<typename T, bool isReadProtected, bool isWriteProtected, bool destroyNonInvoked = true>
 class FunctionQueue_SCSP {};
@@ -78,12 +46,12 @@ private:
 
     private:
         template<typename Callable>
-        FunctionContext(fq_detail::Type<Callable>, uint16_t callable_offset, uint16_t stride) noexcept
+        FunctionContext(rb_detail::Type<Callable>, uint16_t callable_offset, uint16_t stride) noexcept
             : fp_offset{getFpOffset(&invokeAndDestroy<Callable>)}, destroyFp_offset{getFpOffset(&destroy<Callable>)},
               callable_offset{callable_offset}, stride{stride} {}
 
         uint32_t const fp_offset;
-        [[no_unique_address]] std::conditional_t<destroyNonInvoked, uint32_t const, fq_detail::Empty> destroyFp_offset;
+        [[no_unique_address]] std::conditional_t<destroyNonInvoked, uint32_t const, rb_detail::Empty> destroyFp_offset;
         uint16_t const callable_offset;
         uint16_t const stride;
 
@@ -101,7 +69,7 @@ private:
             uint16_t const callable_offset = callable_ptr - fc_ptr;
             uint16_t const stride = next_addr - fc_ptr;
 
-            new (fc_ptr) FunctionContext{fq_detail::Type<Callable>{}, callable_offset, stride};
+            new (fc_ptr) FunctionContext{rb_detail::Type<Callable>{}, callable_offset, stride};
             new (callable_ptr) Callable{std::forward<CArgs>(args)...};
 
             return next_addr;
@@ -141,20 +109,30 @@ public:
     }
 
     void clear() noexcept {
+        if constexpr (isReadProtected)
+            while (m_ReadFlag.test_and_set(std::memory_order::acquire))
+                ;
+        if constexpr (isWriteProtected)
+            while (m_WriteFlag.test_and_set(std::memory_order::acquire))
+                ;
+
+        rb_detail::ScopeGaurd release_read_n_write_lock{[&] {
+            if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order::release);
+            if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::release);
+        }};
+
         if constexpr (destroyNonInvoked) destroyAllFO();
 
         m_InputPos.store(m_Buffer, std::memory_order::relaxed);
         m_OutputPos.store(m_Buffer, std::memory_order::relaxed);
         m_SentinelRead.store(nullptr, std::memory_order::relaxed);
-        if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::relaxed);
-        if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order::relaxed);
     }
 
     bool reserve() const noexcept {
         if constexpr (isReadProtected)
             if (m_ReadFlag.test_and_set(std::memory_order::acquire)) return false;
 
-        fq_detail::ScopeGaurd release_read_lock{[&] {
+        rb_detail::ScopeGaurd release_read_lock{[&] {
             if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order::relaxed);
         }};
 
@@ -170,7 +148,7 @@ public:
         auto const functionCxtPtr = std::bit_cast<FunctionContext *>(found_sentinel ? m_Buffer : output_pos);
         auto const read_data = functionCxtPtr->getReadData();
 
-        fq_detail::ScopeGaurd const update_state{[&] {
+        rb_detail::ScopeGaurd const update_state{[&] {
             if (found_sentinel) m_SentinelRead.store(nullptr, std::memory_order::relaxed);
             m_OutputPos.store(read_data.next_addr, std::memory_order::release);
             if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order::release);
@@ -196,7 +174,7 @@ public:
             if (m_WriteFlag.test_and_set(std::memory_order::acquire)) return false;
         }
 
-        fq_detail::ScopeGaurd const release_write_lock{[&] {
+        rb_detail::ScopeGaurd const release_write_lock{[&] {
             if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::release);
         }};
 
@@ -222,7 +200,7 @@ private:
     template<typename Callable>
     static R invokeAndDestroy(void *data, Args... args) noexcept {
         auto const functor_ptr = static_cast<Callable *>(data);
-        fq_detail::ScopeGaurd const destroy_functor{[&] { std::destroy_at(functor_ptr); }};
+        rb_detail::ScopeGaurd const destroy_functor{[&] { std::destroy_at(functor_ptr); }};
 
         return (*functor_ptr)(std::forward<Args>(args)...);
     }
@@ -238,7 +216,7 @@ private:
             return functionCxtPtr->destroyFO();
         };
 
-        auto const input_pos = m_InputPos.load(std::memory_order::relaxed);
+        auto const input_pos = m_InputPos.load(std::memory_order::acquire);
         auto output_pos = m_OutputPos.load(std::memory_order::acquire);
 
         if (input_pos == output_pos) return;
@@ -290,8 +268,8 @@ private:
     mutable std::atomic<std::byte *> m_OutputPos;
     mutable std::atomic<std::byte *> m_SentinelRead{};
 
-    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, fq_detail::Empty> m_WriteFlag{};
-    [[no_unique_address]] mutable std::conditional_t<isReadProtected, std::atomic_flag, fq_detail::Empty> m_ReadFlag{};
+    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, rb_detail::Empty> m_WriteFlag{};
+    [[no_unique_address]] mutable std::conditional_t<isReadProtected, std::atomic_flag, rb_detail::Empty> m_ReadFlag{};
 
     std::byte *const m_Buffer;
     std::byte *const m_BufferEnd;
