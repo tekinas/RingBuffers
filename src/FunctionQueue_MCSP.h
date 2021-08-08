@@ -291,12 +291,7 @@ private:
         FunctionContext *fcxt_ptr;
         TaggedUint32 next_output_offset;
 
-        rb_detail::ScopeGaurd const reset_sentinel{[&] {
-            if (found_sentinel) m_SentinelRead.store(nullptr, std::memory_order::relaxed);
-        }};
-
         auto output_offset = m_OutputHeadOffset.load(std::memory_order::relaxed);
-
         do {
             auto const input_offset = m_InputOffset.load(std::memory_order::acquire);
             auto const output_pos = m_Buffer + output_offset.getValue();
@@ -313,6 +308,7 @@ private:
         } while (!m_OutputHeadOffset.compare_exchange_weak(output_offset, next_output_offset,
                                                            std::memory_order::relaxed, std::memory_order::relaxed));
 
+        if (found_sentinel) m_SentinelRead.store(nullptr, std::memory_order::relaxed);
         return fcxt_ptr;
     }
 
