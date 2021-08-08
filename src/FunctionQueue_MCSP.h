@@ -323,17 +323,13 @@ private:
         if (output_tail != output_head) {
             while (output_tail != output_head) {
                 if (output_tail == m_SentinelFollow) {
-                    if (!m_SentinelRead.load(std::memory_order::relaxed)) {
-                        output_tail = m_Buffer;
-                        m_SentinelFollow = nullptr;
-                    } else
-                        break;
+                    output_tail = m_Buffer;
+                    m_SentinelFollow = nullptr;
                 } else if (auto const functionCxt = std::bit_cast<FunctionContext *>(output_tail);
                            functionCxt->isFree()) {
                     output_tail = functionCxt->getNextAddr();
-                } else {
+                } else
                     break;
-                }
             }
 
             m_OutputTailPos = output_tail;
