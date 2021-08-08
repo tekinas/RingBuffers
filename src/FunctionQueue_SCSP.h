@@ -107,7 +107,16 @@ public:
         : m_InputPos{buffer}, m_OutputPos{buffer}, m_Buffer{buffer}, m_BufferEnd{buffer + size} {}
 
     ~FunctionQueue_SCSP() noexcept {
-        if constexpr (destroyNonInvoked) destroyAllFO();
+        if constexpr (destroyNonInvoked) {
+            if constexpr (isReadProtected)
+                while (m_ReadFlag.test_and_set(std::memory_order::acquire))
+                    ;
+            if constexpr (isWriteProtected)
+                while (m_WriteFlag.test_and_set(std::memory_order::acquire))
+                    ;
+
+            destroyAllNonInvoked();
+        }
     }
 
     std::byte *buffer() const noexcept { return m_Buffer; }
@@ -131,7 +140,7 @@ public:
             if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::release);
         }};
 
-        if constexpr (destroyNonInvoked) destroyAllFO();
+        if constexpr (destroyNonInvoked) destroyAllNonInvoked();
 
         m_InputPos.store(m_Buffer, std::memory_order::relaxed);
         m_OutputPos.store(m_Buffer, std::memory_order::relaxed);
@@ -227,7 +236,7 @@ private:
         std::destroy_at(static_cast<Callable *>(data));
     }
 
-    void destroyAllFO() {
+    void destroyAllNonInvoked() {
         auto destroyAndGetNextPos = [](auto pos) {
             auto const functionCxtPtr = std::bit_cast<FunctionContext *>(pos);
             return functionCxtPtr->destroyFO();
@@ -239,11 +248,11 @@ private:
         if (input_pos == output_pos) return;
         else if (output_pos > input_pos) {
             auto const sentinel = m_SentinelRead.load(std::memory_order::relaxed);
-            while (output_pos != sentinel) { output_pos = destroyAndGetNextPos(output_pos); }
+            while (output_pos != sentinel) output_pos = destroyAndGetNextPos(output_pos);
             output_pos = m_Buffer;
         }
 
-        while (output_pos != input_pos) { output_pos = destroyAndGetNextPos(output_pos); }
+        while (output_pos != input_pos) output_pos = destroyAndGetNextPos(output_pos);
     }
 
     template<size_t obj_align, size_t obj_size>

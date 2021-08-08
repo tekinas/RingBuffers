@@ -321,8 +321,9 @@ private:
         auto output_tail = m_OutputTailPos;
 
         if (output_tail != output_head) {
+            auto const sentinel = m_SentinelFollow;
             while (output_tail != output_head) {
-                if (output_tail == m_SentinelFollow) {
+                if (output_tail == sentinel) {
                     output_tail = m_Buffer;
                     m_SentinelFollow = nullptr;
                 } else if (auto const functionCxt = std::bit_cast<FunctionContext *>(output_tail);
@@ -339,7 +340,7 @@ private:
     }
 
     void consumeAllFO() {
-        for (auto fcxt_ptr = getFunctionContext(); fcxt_ptr;)
+        for (auto fcxt_ptr = getFunctionContext(); fcxt_ptr; fcxt_ptr = getFunctionContext())
             if constexpr (destroyNonInvoked) fcxt_ptr->destroyFO();
     }
 
