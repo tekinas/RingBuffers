@@ -83,7 +83,7 @@ int main(int argc, char **argv) {
         }
 
         for (auto t = num_threads; t--;)
-            while (!rawComputeQueue.push_back([](auto) { return std::numeric_limits<size_t>::max(); }))
+            while (!rawComputeQueue.push_back([](auto) noexcept { return std::numeric_limits<size_t>::max(); }))
                 ;
     }();
 

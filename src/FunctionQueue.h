@@ -5,6 +5,7 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <type_traits>
@@ -64,7 +65,7 @@ private:
         explicit operator bool() const noexcept { return next_addr; }
 
         template<typename Callable, typename... CArgs>
-        std::byte *construct(CArgs &&...args) const noexcept {
+        std::byte *construct(rb_detail::Type<Callable>, CArgs &&...args) const noexcept {
             uint16_t const callable_offset = callable_ptr - fc_ptr;
             uint16_t const stride = next_addr - fc_ptr;
 
@@ -92,6 +93,15 @@ private:
     };
 
 public:
+    static constexpr inline size_t BUFFER_ALIGNMENT = alignof(FunctionContext);
+
+    template<typename Callable, typename... CArgs>
+    static constexpr bool is_valid_callable_v =
+            std::is_nothrow_constructible_v<Callable, CArgs...> &&std::is_nothrow_destructible_v<Callable> &&
+                    std::is_nothrow_invocable_r_v<R, Callable, Args...> &&
+            ((alignof(FunctionContext) + sizeof(FunctionContext) + alignof(Callable) + sizeof(Callable)) <=
+             std::numeric_limits<uint16_t>::max());
+
     FunctionQueue(std::byte *buffer, size_t size) noexcept
         : m_InputPos{buffer}, m_OutputPos{buffer}, m_Buffer{buffer}, m_BufferEnd{buffer + size} {}
 
@@ -128,9 +138,15 @@ public:
         return read_data.function(read_data.callable_ptr, std::forward<Args>(args)...);
     }
 
-    template<R (*function)(Args...)>
+    template<auto invokable>
+    requires std::is_nothrow_invocable_r_v<R, decltype(invokable), Args...>
     bool push_back() noexcept {
-        return push_back([](Args... args) { return function(std::forward<Args>(args)...); });
+        return push_back([](Args... args) noexcept {
+            if constexpr (std::is_function_v<std::remove_pointer_t<decltype(invokable)>>)
+                return invokable(std::forward<Args>(args)...);
+            else
+                return std::invoke(invokable, std::forward<Args>(args)...);
+        });
     }
 
     template<typename T>
@@ -140,6 +156,7 @@ public:
     }
 
     template<typename Callable, typename... CArgs>
+    requires is_valid_callable_v<Callable, CArgs...>
     bool emplace_back(CArgs &&...args) noexcept {
         constexpr bool is_callable_empty = std::is_empty_v<Callable>;
         constexpr size_t callable_align = is_callable_empty ? 1 : alignof(Callable);
@@ -148,13 +165,11 @@ public:
         auto const storage = getStorage<callable_align, callable_size>();
         if (!storage) return false;
 
-        auto const next_addr = storage.template construct<Callable>(std::forward<CArgs>(args)...);
+        auto const next_addr = storage.construct(rb_detail::Type<Callable>{}, std::forward<CArgs>(args)...);
         m_InputPos = next_addr;
 
         return true;
     }
-
-    static constexpr inline size_t BUFFER_ALIGNMENT = alignof(FunctionContext);
 
 private:
     template<typename T, size_t alignment = alignof(T)>
@@ -167,7 +182,7 @@ private:
         auto const functor_ptr = static_cast<Callable *>(data);
         rb_detail::ScopeGaurd const destroy_functor{[&] { std::destroy_at(functor_ptr); }};
 
-        return (*functor_ptr)(std::forward<Args>(args)...);
+        return std::invoke(*functor_ptr, std::forward<Args>(args)...);
     }
 
     template<typename Callable>

@@ -60,7 +60,6 @@ void test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator
 
                 if (rawComputeQueue.reserve()) {
                     res = rawComputeQueue.call_and_pop(res);
-                    //fmt::print("{}\n", res);
                 } else {
                     std::this_thread::yield();
                 }
@@ -80,7 +79,7 @@ void test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator
             });
         }
 
-        while (!rawComputeQueue.push_back([](auto) { return std::numeric_limits<size_t>::max(); }))
+        while (!rawComputeQueue.push_back([](auto) noexcept { return std::numeric_limits<size_t>::max(); }))
             ;
     }};
 

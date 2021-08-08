@@ -42,7 +42,7 @@ int main(int argc, char **argv) {
             ++functions;
             callbackGenerator.addCallback(util::overload(
                     [&]<typename T>(T &&t) { addFunction = functionQueue.push_back(std::forward<T>(t)); },
-                    [&]<ComputeFunctionSig * fp> { addFunction = functionQueue.push_back<fp>(); }));
+                    [&]<auto fp> { addFunction = functionQueue.push_back<fp>(); }));
         }
         --functions;
 

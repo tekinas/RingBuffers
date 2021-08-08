@@ -9,7 +9,7 @@
 using util::Random;
 using RNG = Random<boost::random::mt19937_64>;
 
-inline size_t compute_1(size_t num) {
+inline size_t compute_1(size_t num) noexcept {
     boost::hash_combine(num, 2323442);
     boost::hash_combine(num, 1211113);
     boost::hash_combine(num, 34234235ul);
@@ -17,14 +17,14 @@ inline size_t compute_1(size_t num) {
     return num;
 }
 
-inline size_t compute_2(size_t num) {
+inline size_t compute_2(size_t num) noexcept {
     boost::hash_combine(num, 24234235ul);
     boost::hash_combine(num, num);
     boost::hash_combine(num, num);
     return num;
 }
 
-inline size_t compute_3(size_t num) { return compute_1(compute_2(num)); }
+inline size_t compute_3(size_t num) noexcept { return compute_1(compute_2(num)); }
 
 template<size_t fields>
 class ComputeFunctor {
@@ -36,7 +36,7 @@ public:
         rng.setRand<size_t>(0, std::numeric_limits<size_t>::max(), std::span{data});
     }
 
-    size_t operator()(size_t num) const {
+    size_t operator()(size_t num) const noexcept {
         boost::hash_range(num, std::begin(data), std::end(data));
         return num;
     }
@@ -49,12 +49,12 @@ private:
     uint16_t data2[fields];
 
 public:
-    explicit ComputeFunctor2(RNG &rng) {
+    explicit ComputeFunctor2(RNG &rng) noexcept {
         rng.setRand<size_t>(0, std::numeric_limits<size_t>::max(), std::span{data});
         rng.setRand<uint16_t>(0, std::numeric_limits<uint16_t>::max(), std::span{data2});
     }
 
-    size_t operator()(size_t num) const {
+    size_t operator()(size_t num) const noexcept {
         boost::hash_range(num, std::begin(data), std::end(data));
         boost::hash_range(num, std::begin(data2), std::end(data2));
         return num;
@@ -62,10 +62,11 @@ public:
 };
 
 class CallbackGenerator {
+private:
     RNG random;
 
 public:
-    explicit CallbackGenerator(size_t seed) : random{seed} {}
+    explicit CallbackGenerator(size_t seed) noexcept : random{seed} {}
 
     void setSeed(uint32_t seed) { random.setSeed(seed); }
 
@@ -77,7 +78,7 @@ public:
                 auto a = random.getRand<uint64_t>(0, max_);
                 auto b = random.getRand<uint64_t>(0, max_);
                 auto c = random.getRand<uint64_t>(0, max_);
-                push_back([=](size_t num) {
+                push_back([=](size_t num) noexcept {
                     boost::hash_combine(num, num);
                     boost::hash_combine(num, a);
                     boost::hash_combine(num, b);
@@ -99,7 +100,7 @@ public:
                 auto e = random.getRand<size_t>(0, max_);
                 auto f = random.getRand<size_t>(0, max_);
                 auto g = random.getRand<size_t>(0, max_);
-                push_back([=](size_t num) {
+                push_back([=](size_t num) noexcept {
                     boost::hash_combine(num, a);
                     boost::hash_combine(num, b);
                     boost::hash_combine(num, c);
@@ -153,7 +154,7 @@ public:
                 push_back(ComputeFunctor<3>{random});
             } break;
             case 11: {
-                push_back([a = random.getRand<uint16_t>(0, std::numeric_limits<uint16_t>::max())](size_t num) {
+                push_back([a = random.getRand<uint16_t>(0, std::numeric_limits<uint16_t>::max())](size_t num) noexcept {
                     boost::hash_combine(num, a);
                     boost::hash_combine(num, num);
                     boost::hash_combine(num, a);
@@ -162,7 +163,7 @@ public:
                 });
             } break;
             case 12: {
-                push_back([a = random.getRand<uint16_t>(0, 255)](size_t num) {
+                push_back([a = random.getRand<uint8_t>(0, 255)](size_t num) noexcept {
                     boost::hash_combine(num, a);
                     return num;
                 });

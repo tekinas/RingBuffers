@@ -46,7 +46,7 @@ int main(int argc, char **argv) {
                 });
             }
 
-            while (!rawComputeQueue.push_back([](auto) { return std::numeric_limits<size_t>::max(); }))
+            while (!rawComputeQueue.push_back([](auto) noexcept { return std::numeric_limits<size_t>::max(); }))
                 ;
         });
     }
@@ -59,9 +59,6 @@ int main(int argc, char **argv) {
         auto threads = num_threads;
 
         while (threads) {
-            //while (!rawComputeQueue.reserve()) std::this_thread::yield();
-            //auto const res = rawComputeQueue.call_and_pop(seed);
-
             ComputeFunctionQueue::FunctionHandle handle;
             while (!(handle = rawComputeQueue.get_function_handle())) std::this_thread::yield();
             auto const res = handle.call_and_pop(seed);

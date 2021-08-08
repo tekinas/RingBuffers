@@ -30,9 +30,9 @@ public:
         auto const cxtPtr = computeCxt.get();
         cxtPtr->callbackGenerator.addCallback(
                 [computeCxt{std::move(computeCxt)}, functionQueue]<typename T>(T &&t) mutable {
-                    auto compute = [computeCxt{std::move(computeCxt)}, t{std::forward<T>(t)}, functionQueue]() mutable {
+                    auto compute = [computeCxt{std::move(computeCxt)}, t{std::forward<T>(t)},
+                                    functionQueue]() mutable noexcept {
                         computeCxt->num = t(computeCxt->num);
-                        //fmt::print("{}\n",computeCxt->num);
 
                         if (++computeCxt->func != computeCxt->num_functions)
                             ComputeCxt::addComputeTask(std::move(computeCxt), functionQueue);
