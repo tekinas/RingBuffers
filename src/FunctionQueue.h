@@ -11,7 +11,7 @@
 #include <type_traits>
 #include <utility>
 
-template<typename T, bool destroyNonInvoked = true, size_t max_obj_footprint = alignof(std::max_align_t) + 512>
+template<typename T, bool destroyNonInvoked = true, size_t max_obj_footprint = alignof(std::max_align_t) + 128>
 class FunctionQueue {};
 
 template<typename R, typename... Args, bool destroyNonInvoked, size_t max_obj_footprint>
