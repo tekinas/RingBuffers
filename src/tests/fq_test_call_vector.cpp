@@ -17,7 +17,8 @@ using ComputeFunctionQueue = FunctionQueue<ComputeFunctionSig, false>;
 using folly::Function;
 using util::Timer;
 
-size_t *bytes_allocated = nullptr;
+size_t default_alloc{};
+size_t *bytes_allocated = &default_alloc;
 
 int main(int argc, char **argv) {
     if (argc == 1) { fmt::print("usage : ./fq_test_call_only <buffer_size> <seed>\n"); }
@@ -28,8 +29,8 @@ int main(int argc, char **argv) {
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : std::random_device{}(); }();
     fmt::print("seed : {}\n", seed);
 
-    std::vector<Function<ComputeFunctionSig>> computeVector{};
-    std::vector<std::function<ComputeFunctionSig>> computeStdVector{};
+    std::vector<Function<ComputeFunctionSig>> follyFunctionVector{};
+    std::vector<std::function<ComputeFunctionSig>> stdFuncionVector{};
 
     CallbackGenerator callbackGenerator{seed};
 
@@ -54,44 +55,48 @@ int main(int argc, char **argv) {
         return functions;
     }();
 
-    size_t computeVectorStorage{0}, computeStdVectorStorage{0};
+    follyFunctionVector.reserve(compute_functors);
+    stdFuncionVector.reserve(compute_functors);
 
+    size_t follyFunctionAllocs{0}, stdFunctionAllocs{0};
     callbackGenerator.setSeed(seed);
     {
-        Timer timer{"vector of folly::Functions write time"};
-        bytes_allocated = &computeVectorStorage;
-        computeVector.reserve(compute_functors);
+        Timer timer{"std::vector<folly::Functions> write time"};
+        bytes_allocated = &follyFunctionAllocs;
 
         for (auto count = compute_functors; count--;) {
-            callbackGenerator.addCallback([&]<typename T>(T &&t) { computeVector.emplace_back(std::forward<T>(t)); });
+            callbackGenerator.addCallback(
+                    [&]<typename T>(T &&t) { follyFunctionVector.emplace_back(std::forward<T>(t)); });
         }
     }
 
     callbackGenerator.setSeed(seed);
     {
-        Timer timer{"vector of std::functions write time"};
-        bytes_allocated = &computeStdVectorStorage;
-        computeStdVector.reserve(compute_functors);
+        Timer timer{"std::vector<std::functions> write time"};
+        bytes_allocated = &stdFunctionAllocs;
 
         for (auto count = compute_functors; count--;) {
             callbackGenerator.addCallback(
-                    [&]<typename T>(T &&t) { computeStdVector.emplace_back(std::forward<T>(t)); });
+                    [&]<typename T>(T &&t) { stdFuncionVector.emplace_back(std::forward<T>(t)); });
         }
     }
 
     fmt::print("\ncompute functions : {}\n\n", compute_functors);
 
     constexpr double ONE_MiB = 1024.0 * 1024.0;
-    fmt::print("std::vector<folly::Function> memory : {} MiB\n", computeVectorStorage / ONE_MiB);
-    fmt::print("std::vector<std::function> memory : {} MiB\n", computeStdVectorStorage / ONE_MiB);
-    fmt::print("function queue memory : {} MiB\n\n", functionQueueBufferSize / ONE_MiB);
+    fmt::print("std::vector<folly::Function> memory footprint : {} MiB\n",
+               (follyFunctionVector.size() * sizeof(folly::Function<ComputeFunctionSig>) + follyFunctionAllocs) /
+                       ONE_MiB);
+    fmt::print("std::vector<std::function> memory footprint : {} MiB\n",
+               (stdFuncionVector.size() * sizeof(std::function<ComputeFunctionSig>) + stdFunctionAllocs) / ONE_MiB);
+    fmt::print("function queue memory : {} MiB\n\n", functionQueue.buffer_size());
 
     void test(ComputeFunctionQueue &) noexcept;
     void test(std::vector<Function<ComputeFunctionSig>> &) noexcept;
     void test(std::vector<std::function<ComputeFunctionSig>> &) noexcept;
 
-    test(computeVector);
-    test(computeStdVector);
+    test(follyFunctionVector);
+    test(stdFuncionVector);
     test(functionQueue);
 }
 
@@ -107,7 +112,7 @@ void test(ComputeFunctionQueue &functionQueue) noexcept {
 void test(std::vector<Function<ComputeFunctionSig>> &vectorComputeQueue) noexcept {
     size_t num = 0;
     {
-        Timer timer{"std::vector of folly::Function"};
+        Timer timer{"std::vector<folly::Function>"};
 
         for (auto &function : vectorComputeQueue) {
             num = function(num);
@@ -120,7 +125,7 @@ void test(std::vector<Function<ComputeFunctionSig>> &vectorComputeQueue) noexcep
 void test(std::vector<std::function<ComputeFunctionSig>> &vectorStdComputeQueue) noexcept {
     size_t num = 0;
     {
-        Timer timer{"std::vector of std::function"};
+        Timer timer{"std::vector<std::function>"};
 
         for (auto &function : vectorStdComputeQueue) {
             num = function(num);
@@ -131,7 +136,7 @@ void test(std::vector<std::function<ComputeFunctionSig>> &vectorStdComputeQueue)
 }
 
 void *operator new(size_t bytes) {
-    if (bytes_allocated) *bytes_allocated += bytes;
+    *bytes_allocated += bytes;
     return malloc(bytes);
 }
 

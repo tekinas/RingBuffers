@@ -11,11 +11,11 @@
 #include <type_traits>
 #include <utility>
 
-template<typename T, bool destroyNonInvoked = true>
+template<typename T, bool destroyNonInvoked = true, size_t max_obj_footprint = alignof(std::max_align_t) + 512>
 class FunctionQueue {};
 
-template<typename R, typename... Args, bool destroyNonInvoked>
-class FunctionQueue<R(Args...), destroyNonInvoked> {
+template<typename R, typename... Args, bool destroyNonInvoked, size_t max_obj_footprint>
+class FunctionQueue<R(Args...), destroyNonInvoked, max_obj_footprint> {
 private:
     class Storage;
 
@@ -62,48 +62,55 @@ private:
     public:
         Storage() noexcept = default;
 
-        explicit operator bool() const noexcept { return next_addr; }
+        explicit operator bool() const noexcept { return fc_ptr; }
+
+        std::byte *getNextAddr() const noexcept { return next_addr; }
+
+        Storage getWrapped(std::byte *wrap_addr) const noexcept { return {fc_ptr, callable_ptr, wrap_addr}; }
 
         template<typename Callable, typename... CArgs>
-        std::byte *construct(rb_detail::Type<Callable>, CArgs &&...args) const noexcept {
+        void construct(rb_detail::Type<Callable>, CArgs &&...args) const noexcept {
             uint16_t const callable_offset = callable_ptr - fc_ptr;
             uint16_t const stride = next_addr - fc_ptr;
 
             new (fc_ptr) FunctionContext{rb_detail::Type<Callable>{}, callable_offset, stride};
             new (callable_ptr) Callable{std::forward<CArgs>(args)...};
-
-            return next_addr;
         }
 
         template<size_t obj_align, size_t obj_size>
-        static Storage getAlignedStorage(std::byte *buffer_start, std::byte *buffer_end) noexcept {
+        static Storage getAlignedStorage(std::byte *buffer_start) noexcept {
             auto const fc_ptr = buffer_start;
             auto const obj_ptr = align<std::byte, obj_align>(fc_ptr + sizeof(FunctionContext));
             auto const next_addr = align<std::byte, alignof(FunctionContext)>(obj_ptr + obj_size);
-            return {fc_ptr, obj_ptr, next_addr < buffer_end ? next_addr : nullptr};
+            return {fc_ptr, obj_ptr, next_addr};
         }
 
     private:
         Storage(std::byte *fc_ptr, std::byte *callable_ptr, std::byte *next_addr) noexcept
             : fc_ptr{fc_ptr}, callable_ptr{callable_ptr}, next_addr{next_addr} {}
 
-        std::byte *const fc_ptr{};
-        std::byte *const callable_ptr{};
-        std::byte *const next_addr{};
+        std::byte *fc_ptr{};
+        std::byte *callable_ptr;
+        std::byte *next_addr;
     };
+
+    static constexpr inline size_t function_context_footprint = alignof(FunctionContext) + sizeof(FunctionContext);
+    static constexpr inline size_t sentinel_region_size = function_context_footprint + max_obj_footprint;
 
 public:
     static constexpr inline size_t BUFFER_ALIGNMENT = alignof(FunctionContext);
+
+    static_assert(sentinel_region_size <= std::numeric_limits<uint16_t>::max());
 
     template<typename Callable, typename... CArgs>
     static constexpr bool is_valid_callable_v =
             std::is_nothrow_constructible_v<Callable, CArgs...> &&std::is_nothrow_destructible_v<Callable> &&
                     std::is_nothrow_invocable_r_v<R, Callable, Args...> &&
-            ((alignof(FunctionContext) + sizeof(FunctionContext) + alignof(Callable) + sizeof(Callable)) <=
-             std::numeric_limits<uint16_t>::max());
+            ((alignof(Callable) + sizeof(Callable) + function_context_footprint) <= sentinel_region_size);
 
     FunctionQueue(std::byte *buffer, size_t size) noexcept
-        : m_InputPos{buffer}, m_OutputPos{buffer}, m_Buffer{buffer}, m_BufferEnd{buffer + size} {}
+        : m_InputPos{buffer}, m_OutputPos{buffer}, m_Buffer{buffer}, m_BufferEnd{buffer + size - sentinel_region_size} {
+    }
 
     std::byte *buffer() const noexcept { return m_Buffer; }
 
@@ -114,7 +121,6 @@ public:
 
         m_InputPos = m_Buffer;
         m_OutputPos = m_Buffer;
-        m_SentinelRead = nullptr;
     }
 
     ~FunctionQueue() noexcept {
@@ -124,16 +130,11 @@ public:
     bool empty() const noexcept { return m_InputPos == m_OutputPos; }
 
     R call_and_pop(Args... args) const noexcept {
-        auto const output_pos = m_OutputPos;
-        bool const found_sentinel = output_pos == m_SentinelRead;
-
-        auto const functionCxtPtr = std::bit_cast<FunctionContext *>(found_sentinel ? m_Buffer : output_pos);
+        auto const functionCxtPtr = std::bit_cast<FunctionContext *>(m_OutputPos);
         auto const read_data = functionCxtPtr->getReadData();
 
-        rb_detail::ScopeGaurd const update_state{[&] {
-            if (found_sentinel) m_SentinelRead = nullptr;
-            m_OutputPos = read_data.next_addr;
-        }};
+        rb_detail::ScopeGaurd const set_next_output_pos{
+                [&] { m_OutputPos = read_data.next_addr < m_BufferEnd ? read_data.next_addr : m_Buffer; }};
 
         return read_data.function(read_data.callable_ptr, std::forward<Args>(args)...);
     }
@@ -165,8 +166,8 @@ public:
         auto const storage = getStorage<callable_align, callable_size>();
         if (!storage) return false;
 
-        auto const next_addr = storage.construct(rb_detail::Type<Callable>{}, std::forward<CArgs>(args)...);
-        m_InputPos = next_addr;
+        storage.construct(rb_detail::Type<Callable>{}, std::forward<CArgs>(args)...);
+        m_InputPos = storage.getNextAddr();
 
         return true;
     }
@@ -201,8 +202,7 @@ private:
 
         if (input_pos == output_pos) return;
         else if (output_pos > input_pos) {
-            auto const sentinel = m_SentinelRead;
-            while (output_pos != sentinel) { output_pos = destroyAndGetNextPos(output_pos); }
+            while (output_pos < m_BufferEnd) { output_pos = destroyAndGetNextPos(output_pos); }
             output_pos = m_Buffer;
         }
 
@@ -210,24 +210,23 @@ private:
     }
 
     template<size_t obj_align, size_t obj_size>
-    Storage getStorage() noexcept {
+    Storage getStorage() const noexcept {
         auto const input_pos = m_InputPos;
         auto const output_pos = m_OutputPos;
         auto const buffer_start = m_Buffer;
         auto const buffer_end = m_BufferEnd;
 
         constexpr auto getAlignedStorage = Storage::template getAlignedStorage<obj_align, obj_size>;
+        if (auto const storage = getAlignedStorage(input_pos); input_pos >= output_pos) {
+            if (storage.getNextAddr() < buffer_end) [[likely]]
+                return storage;
+            else if (output_pos != buffer_start) {
+                return storage.getWrapped(buffer_start);
+            }
+        } else if (storage.getNextAddr() < output_pos)
+            return storage;
 
-        if (input_pos >= output_pos) {
-            if (auto const storage = getAlignedStorage(input_pos, buffer_end)) {
-                return storage;
-            } else if (auto const storage = getAlignedStorage(buffer_start, output_pos)) {
-                m_SentinelRead = input_pos;
-                return storage;
-            } else
-                return {};
-        } else
-            return getAlignedStorage(input_pos, output_pos);
+        return {};
     }
 
     static void fp_base_func() noexcept {}
@@ -246,7 +245,6 @@ private:
 private:
     std::byte *m_InputPos;
     mutable std::byte *m_OutputPos;
-    mutable std::byte *m_SentinelRead{};
 
     std::byte *const m_Buffer;
     std::byte *const m_BufferEnd;

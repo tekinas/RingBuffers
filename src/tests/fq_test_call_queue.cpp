@@ -14,7 +14,8 @@ using ComputeFunctionQueue = FunctionQueue<ComputeFunctionSig, false>;
 
 using util::Timer;
 
-size_t *bytes_allocated = nullptr;
+size_t default_alloc{};
+size_t *bytes_allocated = &default_alloc;
 
 int main(int argc, char **argv) {
     if (argc == 1) { fmt::print("usage : ./fq_test_call_and_pop <buffer_size> <seed>\n"); }
@@ -56,7 +57,7 @@ int main(int argc, char **argv) {
     size_t follyFunctionAllocs{0}, stdFunctionAllocs{0};
     callbackGenerator.setSeed(seed);
     {
-        Timer timer{"boost::circular_buffer of folly::Functions fill time"};
+        Timer timer{"boost::circular_buffer<folly::Functions> write time"};
         bytes_allocated = &follyFunctionAllocs;
 
         for (auto count = compute_functors; count--;) {
@@ -66,7 +67,7 @@ int main(int argc, char **argv) {
 
     callbackGenerator.setSeed(seed);
     {
-        Timer timer{"boost::circular_buffer of std::functions fill time"};
+        Timer timer{"boost::circular_buffer<std::functions> write time"};
         bytes_allocated = &stdFunctionAllocs;
 
         for (auto count = compute_functors; count--;) {
@@ -77,11 +78,11 @@ int main(int argc, char **argv) {
     fmt::print("\ncompute functions : {}\n\n", compute_functors);
 
     constexpr double ONE_MiB = 1024.0 * 1024.0;
-    fmt::print("boost::circular_buffer<folly::Function> memory : {} MiB\n",
+    fmt::print("boost::circular_buffer<folly::Function> memory footprint : {} MiB\n",
                (follyFunctionAllocs + computeQueue.size() * sizeof(folly::Function<ComputeFunctionSig>)) / ONE_MiB);
-    fmt::print("boost::circular_buffer<std::function> memory : {} MiB\n",
+    fmt::print("boost::circular_buffer<std::function> memory footprint : {} MiB\n",
                (stdFunctionAllocs + computeStdQueue.size() * sizeof(std::function<ComputeFunctionSig>)) / ONE_MiB);
-    fmt::print("function queue memory : {} MiB\n\n", functionQueue.buffer_size() / ONE_MiB);
+    fmt::print("function queue memory footprint : {} MiB\n\n", functionQueue.buffer_size() / ONE_MiB);
 
     void test(boost::circular_buffer<folly::Function<ComputeFunctionSig>> &) noexcept;
     void test(boost::circular_buffer<std::function<ComputeFunctionSig>> &) noexcept;
@@ -104,7 +105,7 @@ void test(ComputeFunctionQueue &functionQueue) noexcept {
 void test(boost::circular_buffer<folly::Function<ComputeFunctionSig>> &computeQueue) noexcept {
     size_t num = 0;
     {
-        Timer timer{"boost::circular_buffer of folly::Functions"};
+        Timer timer{"boost::circular_buffer<folly::Function>"};
         while (!computeQueue.empty()) {
             num = computeQueue.front()(num);
             computeQueue.pop_front();
@@ -116,7 +117,7 @@ void test(boost::circular_buffer<folly::Function<ComputeFunctionSig>> &computeQu
 void test(boost::circular_buffer<std::function<ComputeFunctionSig>> &computeStdQueue) noexcept {
     size_t num = 0;
     {
-        Timer timer{"boost::circular_buffer of std::functions"};
+        Timer timer{"boost::circular_buffer<std::function>"};
         while (!computeStdQueue.empty()) {
             num = computeStdQueue.front()(num);
             computeStdQueue.pop_front();
@@ -126,7 +127,7 @@ void test(boost::circular_buffer<std::function<ComputeFunctionSig>> &computeStdQ
 }
 
 void *operator new(size_t bytes) {
-    if (bytes_allocated) *bytes_allocated += bytes;
+    *bytes_allocated += bytes;
     return malloc(bytes);
 }
 
