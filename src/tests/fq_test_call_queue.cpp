@@ -6,7 +6,6 @@
 #include <folly/Function.h>
 #include <functional>
 
-#define FMT_HEADER_ONLY
 #include <fmt/format.h>
 
 using ComputeFunctionSig = size_t(size_t);

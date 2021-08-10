@@ -9,7 +9,6 @@
 #include <span>
 #include <type_traits>
 
-#define FMT_HEADER_ONLY
 #include <fmt/format.h>
 
 #include <boost/random.hpp>

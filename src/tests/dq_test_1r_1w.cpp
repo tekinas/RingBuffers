@@ -5,7 +5,6 @@
 #include <span>
 #include <thread>
 
-#define FMT_HEADER_ONLY
 #include <fmt/format.h>
 
 using util::Random;

@@ -4,7 +4,6 @@
 #include "util.h"
 #include <boost/container_hash/hash_fwd.hpp>
 
-#define FMT_HEADER_ONLY
 #include <fmt/format.h>
 
 #include <thread>

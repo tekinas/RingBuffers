@@ -129,7 +129,7 @@ public:
 
     std::byte *buffer() const noexcept { return m_Buffer; }
 
-    size_t buffer_size() const noexcept { return m_BufferEnd - m_Buffer; }
+    size_t buffer_size() const noexcept { return m_BufferEnd - m_Buffer + sentinel_region_size; }
 
     bool empty() const noexcept {
         return m_InputPos.load(std::memory_order::acquire) == m_OutputPos.load(std::memory_order::relaxed);

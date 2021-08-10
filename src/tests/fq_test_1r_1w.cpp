@@ -4,7 +4,6 @@
 #include "util.h"
 #include <random>
 
-#define FMT_HEADER_ONLY
 #include <fmt/format.h>
 
 #include <thread>

@@ -3,7 +3,6 @@
 #include "ComputeCallbackGenerator.h"
 #include "util.h"
 
-#define FMT_HEADER_ONLY
 #include <fmt/format.h>
 
 #include <thread>

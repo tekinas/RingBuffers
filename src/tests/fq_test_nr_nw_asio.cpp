@@ -5,7 +5,6 @@
 #define BOOST_NO_EXCEPTIONS
 #include <boost/asio.hpp>
 
-#define FMT_HEADER_ONLY
 #include <fmt/format.h>
 
 using namespace util;

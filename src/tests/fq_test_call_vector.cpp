@@ -8,7 +8,6 @@
 #include <random>
 #include <type_traits>
 
-#define FMT_HEADER_ONLY
 #include <fmt/format.h>
 
 using ComputeFunctionSig = size_t(size_t);
@@ -89,7 +88,7 @@ int main(int argc, char **argv) {
                        ONE_MiB);
     fmt::print("std::vector<std::function> memory footprint : {} MiB\n",
                (stdFuncionVector.size() * sizeof(std::function<ComputeFunctionSig>) + stdFunctionAllocs) / ONE_MiB);
-    fmt::print("function queue memory : {} MiB\n\n", functionQueue.buffer_size());
+    fmt::print("function queue memory : {} MiB\n\n", functionQueue.buffer_size() / ONE_MiB);
 
     void test(ComputeFunctionQueue &) noexcept;
     void test(std::vector<Function<ComputeFunctionSig>> &) noexcept;

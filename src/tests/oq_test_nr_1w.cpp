@@ -3,7 +3,6 @@
 #include "../ObjectQueue_MCSP.h"
 #include "util.h"
 
-#define FMT_HEADER_ONLY
 #include <fmt/format.h>
 
 #include <algorithm>

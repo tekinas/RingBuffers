@@ -114,7 +114,7 @@ public:
 
     std::byte *buffer() const noexcept { return m_Buffer; }
 
-    size_t buffer_size() const noexcept { return m_BufferEnd - m_Buffer; }
+    size_t buffer_size() const noexcept { return m_BufferEnd - m_Buffer + sentinel_region_size; }
 
     void clear() noexcept {
         if constexpr (destroyNonInvoked) destroyAllFO();
