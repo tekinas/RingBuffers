@@ -35,6 +35,7 @@ public:
           c{rng.getRand<uint32_t>(std::numeric_limits<uint32_t>::min(), std::numeric_limits<uint32_t>::max())} {}
 
     size_t operator()(Obj::RNG &rng, size_t seed) const noexcept {
+        rng.setSeed(seed);
         auto const aa = rng.getRand<uint64_t>(0, a);
         auto const bb = std::bit_cast<uint32_t>(rng.getRand(-b, b));
         auto const cc = rng.getRand<uint32_t>(0, c);
@@ -253,7 +254,7 @@ int main(int argc, char **argv) {
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : std::random_device{}(); }();
     fmt::print("seed : {}\n", seed);
 
-    size_t const objects = [&] { return (argc >= 4) ? atol(argv[3]) : 100'000'000; }();
+    size_t const objects = [&] { return (argc >= 4) ? atol(argv[3]) : 2'000'000; }();
     fmt::print("objects : {}\n", objects);
 
     {
