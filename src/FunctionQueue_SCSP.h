@@ -35,13 +35,13 @@ private:
 
         ReadData getReadData() const noexcept {
             auto const this_ = std::bit_cast<std::byte *>(this);
-            auto const function = std::bit_cast<InvokeAndDestroy>(getFp(fp_offset));
+            auto const function = getFp<InvokeAndDestroy>(fp_offset);
             return {function, this_ + callable_offset, this_ + stride};
         }
 
         std::byte *destroyFO() const noexcept {
             auto const this_ = std::bit_cast<std::byte *>(this);
-            auto const destroy_functor = std::bit_cast<Destroy>(getFp(destroyFp_offset));
+            auto const destroy_functor = getFp<Destroy>(destroyFp_offset);
 
             destroy_functor(this_ + callable_offset);
             return this_ + stride;
@@ -279,16 +279,17 @@ private:
 
     static void fp_base_func() noexcept {}
 
-    static void *getFp(uint32_t fp_offset) noexcept {
-        const uintptr_t fp_base =
-                std::bit_cast<uintptr_t>(&fp_base_func) & (static_cast<uintptr_t>(0XFFFFFFFF00000000lu));
-        return std::bit_cast<void *>(fp_base + fp_offset);
+    template<typename FPtr>
+    requires std::is_function_v<std::remove_pointer_t<FPtr>>
+    static auto getFp(uint32_t fp_offset) noexcept {
+        const uintptr_t fp_base = 0;
+        //std::bit_cast<uintptr_t>(&fp_base_func) & static_cast<uintptr_t>(0XFFFFFFFF00000000lu);
+        return std::bit_cast<FPtr>(fp_base + fp_offset);
     }
 
-    template<typename FR, typename... FArgs>
-    static uint32_t getFpOffset(FR (*fp)(FArgs...)) noexcept {
-        return static_cast<uint32_t>(std::bit_cast<uintptr_t>(fp));
-    }
+    template<typename FPtr>
+    requires std::is_function_v<std::remove_pointer_t<FPtr>>
+    static uint32_t getFpOffset(FPtr fp) noexcept { return static_cast<uint32_t>(std::bit_cast<uintptr_t>(fp)); }
 
 private:
     std::atomic<std::byte *> m_InputPos;
