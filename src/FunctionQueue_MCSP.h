@@ -153,7 +153,7 @@ public:
         }
 
         FunctionHandle &operator=(FunctionHandle &&other) noexcept {
-            release();
+            if (functionCxtPtr) release();
             functionCxtPtr = std::exchange(other.functionCxtPtr, nullptr);
             return *this;
         }

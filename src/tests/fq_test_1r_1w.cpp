@@ -9,36 +9,15 @@
 #include <thread>
 
 using ComputeFunctionSig = size_t(size_t);
-using ComputeFunctionQueue = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
-//using ComputeFunctionQueue = FunctionQueue_MCSP<ComputeFunctionSig, false, false>;
-
-void test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator &callbackGenerator,
-                        size_t functions) noexcept;
+using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
+using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, false, false>;
+//using FunctionQueue = FunctionQueueSCSP;
+using FunctionQueue = FunctionQueueMCSP;
 
 using util::Timer;
 
-int main(int argc, char **argv) {
-    if (argc == 1) { fmt::print("usage : ./fq_test_1r_1w <buffer_size> <seed> <functions>\n"); }
-
-    size_t const rawQueueMemSize = [&] { return (argc >= 2) ? atof(argv[1]) : 1000 / 1024.0 / 1024.0; }() * 1024 * 1024;
-
-    fmt::print("buffer size : {}\n", rawQueueMemSize);
-
-    size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : std::random_device{}(); }();
-    fmt::print("seed : {}\n", seed);
-
-    size_t const functions = [&] { return (argc >= 4) ? atol(argv[3]) : 20'000'000; }();
-    fmt::print("functions : {}\n", functions);
-
-    auto const rawQueueMem = std::make_unique<std::byte[]>(rawQueueMemSize);
-    ComputeFunctionQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
-
-    CallbackGenerator callbackGenerator{seed};
-
-    test_lockFreeQueue(rawComputeQueue, callbackGenerator, functions);
-}
-
-void test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator &callbackGenerator,
+template<typename FunctionQueue>
+void test_lockFreeQueue(FunctionQueue &rawComputeQueue, CallbackGenerator &callbackGenerator,
                         size_t functions) noexcept {
     util::StartFlag start_flag;
 
@@ -49,18 +28,18 @@ void test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator
             Timer timer{"reader"};
             while (res != std::numeric_limits<size_t>::max()) {
                 num = res;
-
-                /*if (auto handle = rawComputeQueue.get_function_handle()) {
-                    res = handle.call_and_pop(res);
-                    //fmt::print("{}\n", res);
+                if constexpr (std::is_same_v<FunctionQueueSCSP, FunctionQueue>) {
+                    if (rawComputeQueue.reserve()) {
+                        res = rawComputeQueue.call_and_pop(res);
+                    } else {
+                        std::this_thread::yield();
+                    }
                 } else {
-                    std::this_thread::yield();
-                }*/
-
-                if (rawComputeQueue.reserve()) {
-                    res = rawComputeQueue.call_and_pop(res);
-                } else {
-                    std::this_thread::yield();
+                    if (auto handle = rawComputeQueue.get_function_handle()) {
+                        res = handle.call_and_pop(res);
+                    } else {
+                        std::this_thread::yield();
+                    }
                 }
             }
         }
@@ -83,4 +62,25 @@ void test_lockFreeQueue(ComputeFunctionQueue &rawComputeQueue, CallbackGenerator
     }};
 
     start_flag.start();
+}
+
+int main(int argc, char **argv) {
+    if (argc == 1) { fmt::print("usage : ./fq_test_1r_1w <buffer_size> <seed> <functions>\n"); }
+
+    size_t const rawQueueMemSize = [&] { return (argc >= 2) ? atof(argv[1]) : 1000 / 1024.0 / 1024.0; }() * 1024 * 1024;
+
+    fmt::print("buffer size : {}\n", rawQueueMemSize);
+
+    size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : std::random_device{}(); }();
+    fmt::print("seed : {}\n", seed);
+
+    size_t const functions = [&] { return (argc >= 4) ? atol(argv[3]) : 20'000'000; }();
+    fmt::print("functions : {}\n", functions);
+
+    auto const rawQueueMem = std::make_unique<std::byte[]>(rawQueueMemSize);
+    FunctionQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
+
+    CallbackGenerator callbackGenerator{seed};
+
+    test_lockFreeQueue(rawComputeQueue, callbackGenerator, functions);
 }
