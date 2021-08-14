@@ -13,7 +13,7 @@
 #include <fmt/format.h>
 
 using ComputeFunctionSig = size_t(size_t);
-using FunctionQueue_ = FunctionQueue<ComputeFunctionSig, false>;
+using FunctionQueueNC = FunctionQueue<ComputeFunctionSig, false>;
 using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
 using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, false, false>;
 using FunctionQueueType = FunctionQueueMCSP;
@@ -25,19 +25,43 @@ size_t default_alloc{};
 size_t *bytes_allocated = &default_alloc;
 
 template<typename FunctionQueueType>
-requires std::same_as<FunctionQueueType, FunctionQueue_> || std::same_as<FunctionQueueType, FunctionQueueSCSP> ||
+class FunctionQueueData {
+private:
+    std::unique_ptr<std::byte[]> functionQueueBuffer;
+    [[no_unique_address]] std::conditional_t<std::same_as<FunctionQueueType, FunctionQueueMCSP>,
+                                             std::unique_ptr<std::atomic<uint16_t>[]>, std::monostate>
+            cleanOffsetArray;
+
+public:
+    FunctionQueueType functionQueue;
+
+    template<typename = void>
+    requires std::same_as<FunctionQueueType, FunctionQueueMCSP> FunctionQueueData(size_t buffer_size)
+        : functionQueueBuffer{std::make_unique<std::byte[]>(buffer_size)},
+          cleanOffsetArray{std::make_unique<std::atomic<uint16_t>[]>(FunctionQueueType::clean_array_size(buffer_size))},
+          functionQueue{functionQueueBuffer.get(), buffer_size, cleanOffsetArray.get()} {}
+
+    template<typename = void>
+    requires std::same_as<FunctionQueueType, FunctionQueueNC> || std::same_as<FunctionQueueType, FunctionQueueSCSP>
+    FunctionQueueData(size_t buffer_size)
+        : functionQueueBuffer{std::make_unique<std::byte[]>(buffer_size)}, functionQueue{functionQueueBuffer.get(),
+                                                                                         buffer_size} {}
+};
+
+template<typename FunctionQueueType>
+requires std::same_as<FunctionQueueType, FunctionQueueNC> || std::same_as<FunctionQueueType, FunctionQueueSCSP> ||
         std::same_as<FunctionQueueType, FunctionQueueMCSP>
 void test(FunctionQueueType &functionQueue) noexcept {
     size_t num = 0;
     {
         Timer timer{"function queue"};
-        if constexpr (std::same_as<FunctionQueueType, FunctionQueue_> ||
+        if constexpr (std::same_as<FunctionQueueType, FunctionQueueNC> ||
                       std::same_as<FunctionQueueType, FunctionQueueSCSP>)
             while (!functionQueue.empty()) num = functionQueue.call_and_pop(num);
-        else
-            for (auto handle = functionQueue.get_function_handle(); handle;
-                 handle = functionQueue.get_function_handle())
-                num = handle.call_and_pop(num);
+        else {
+            FunctionQueueMCSP::FunctionHandle handle;
+            while ((handle = functionQueue.get_function_handle_check_once())) num = handle.call_and_pop(num);
+        }
     }
 
     fmt::print("result : {}\n\n", num);
@@ -77,10 +101,7 @@ int main(int argc, char **argv) {
 
     CallbackGenerator callbackGenerator{seed};
 
-    auto const functionQueueBuffer =
-            std::make_unique<std::aligned_storage_t<FunctionQueueType::BUFFER_ALIGNMENT, sizeof(std::byte)>[]>(
-                    functionQueueBufferSize);
-    FunctionQueueType functionQueue{std::bit_cast<std::byte *>(functionQueueBuffer.get()), functionQueueBufferSize};
+    FunctionQueueData<FunctionQueueType> fq_data{functionQueueBufferSize};
 
     size_t const compute_functors = [&] {
         Timer timer{"function queue write time"};
@@ -90,8 +111,8 @@ int main(int argc, char **argv) {
         while (addFunction) {
             ++functions;
             callbackGenerator.addCallback(util::overload(
-                    [&]<typename T>(T &&t) { addFunction = functionQueue.push_back(std::forward<T>(t)); },
-                    [&]<auto fp> { addFunction = functionQueue.push_back<fp>(); }));
+                    [&]<typename T>(T &&t) { addFunction = fq_data.functionQueue.push_back(std::forward<T>(t)); },
+                    [&]<auto fp> { addFunction = fq_data.functionQueue.push_back<fp>(); }));
         }
         --functions;
 
@@ -132,11 +153,11 @@ int main(int argc, char **argv) {
                        ONE_MiB);
     fmt::print("std::vector<std::function> memory footprint : {} MiB\n",
                (stdFuncionVector.size() * sizeof(std::function<ComputeFunctionSig>) + stdFunctionAllocs) / ONE_MiB);
-    fmt::print("function queue memory : {} MiB\n\n", functionQueue.buffer_size() / ONE_MiB);
+    fmt::print("function queue memory : {} MiB\n\n", fq_data.functionQueue.buffer_size() / ONE_MiB);
 
     test(follyFunctionVector);
     test(stdFuncionVector);
-    test(functionQueue);
+    test(fq_data.functionQueue);
 }
 
 

@@ -11,8 +11,8 @@
 using ComputeFunctionSig = size_t(size_t);
 using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
 using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, false, false>;
-//using FunctionQueue = FunctionQueueSCSP;
-using FunctionQueue = FunctionQueueMCSP;
+using FunctionQueueType = FunctionQueueSCSP;
+//using FunctionQueue = FunctionQueueMCSP;
 
 using util::Timer;
 
@@ -78,7 +78,7 @@ int main(int argc, char **argv) {
     fmt::print("functions : {}\n", functions);
 
     auto const rawQueueMem = std::make_unique<std::byte[]>(rawQueueMemSize);
-    FunctionQueue rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
+    FunctionQueueType rawComputeQueue{rawQueueMem.get(), rawQueueMemSize};
 
     CallbackGenerator callbackGenerator{seed};
 

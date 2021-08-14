@@ -27,11 +27,16 @@ public:
           c{rng.getRand<uint32_t>(std::numeric_limits<uint32_t>::min(), std::numeric_limits<uint32_t>::max())} {}
 
     uint64_t operator()(Obj::RNG &rng) const noexcept {
-        rng.setSeed(a);
+        auto seed = a;
+        rng.setSeed(seed);
         auto const aa = rng.getRand<uint64_t>(0, a);
         auto const bb = std::bit_cast<uint32_t>(rng.getRand(-b, b));
         auto const cc = rng.getRand<uint32_t>(0, c);
-        return aa * bb * cc;
+
+        boost::hash_combine(seed, aa);
+        boost::hash_combine(seed, bb);
+        boost::hash_combine(seed, cc);
+        return seed;
     }
 
 private:
@@ -248,7 +253,9 @@ int main(int argc, char **argv) {
 
     {
         fmt::print("\nFunction Queue test ....\n");
-        FunctionQueue functionQueue{std::bit_cast<std::byte *>(buffer.get()), object_count * sizeof(Obj)};
+        constexpr size_t buffer_size = object_count * sizeof(Obj);
+        auto cleanOffsetArray = std::make_unique<std::atomic<uint16_t>[]>(FunctionQueue::clean_array_size(buffer_size));
+        FunctionQueue functionQueue{std::bit_cast<std::byte *>(buffer.get()), buffer_size, cleanOffsetArray.get()};
         test(functionQueue, num_threads, objects, seed);
     }
 

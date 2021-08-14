@@ -1,20 +1,95 @@
 #include "../FunctionQueue.h"
+#include "../FunctionQueue_MCSP.h"
+#include "../FunctionQueue_SCSP.h"
 #include "ComputeCallbackGenerator.h"
 #include "util.h"
 
+#include <bit>
 #include <boost/circular_buffer.hpp>
+#include <chrono>
 #include <folly/Function.h>
-#include <functional>
+#include <random>
+#include <type_traits>
 
 #include <fmt/format.h>
 
 using ComputeFunctionSig = size_t(size_t);
-using ComputeFunctionQueue = FunctionQueue<ComputeFunctionSig, false>;
+using FunctionQueueNC = FunctionQueue<ComputeFunctionSig, false>;
+using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
+using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, false, false>;
+using FunctionQueueType = FunctionQueueMCSP;
 
 using util::Timer;
 
 size_t default_alloc{};
 size_t *bytes_allocated = &default_alloc;
+
+template<typename FunctionQueueType>
+class FunctionQueueData {
+private:
+    std::unique_ptr<std::byte[]> functionQueueBuffer;
+    [[no_unique_address]] std::conditional_t<std::same_as<FunctionQueueType, FunctionQueueMCSP>,
+                                             std::unique_ptr<std::atomic<uint16_t>[]>, std::monostate>
+            cleanOffsetArray;
+
+public:
+    FunctionQueueType functionQueue;
+
+    template<typename = void>
+    requires std::same_as<FunctionQueueType, FunctionQueueMCSP> FunctionQueueData(size_t buffer_size)
+        : functionQueueBuffer{std::make_unique<std::byte[]>(buffer_size)},
+          cleanOffsetArray{std::make_unique<std::atomic<uint16_t>[]>(FunctionQueueType::clean_array_size(buffer_size))},
+          functionQueue{functionQueueBuffer.get(), buffer_size, cleanOffsetArray.get()} {}
+
+    template<typename = void>
+    requires std::same_as<FunctionQueueType, FunctionQueueNC> || std::same_as<FunctionQueueType, FunctionQueueSCSP>
+    FunctionQueueData(size_t buffer_size)
+        : functionQueueBuffer{std::make_unique<std::byte[]>(buffer_size)}, functionQueue{functionQueueBuffer.get(),
+                                                                                         buffer_size} {}
+};
+
+template<typename FunctionQueueType>
+requires std::same_as<FunctionQueueType, FunctionQueueNC> || std::same_as<FunctionQueueType, FunctionQueueSCSP> ||
+        std::same_as<FunctionQueueType, FunctionQueueMCSP>
+void test(FunctionQueueType &functionQueue) noexcept {
+    size_t num = 0;
+    {
+        Timer timer{"function queue"};
+        if constexpr (std::same_as<FunctionQueueType, FunctionQueueNC> ||
+                      std::same_as<FunctionQueueType, FunctionQueueSCSP>)
+            while (!functionQueue.empty()) num = functionQueue.call_and_pop(num);
+        else {
+            FunctionQueueMCSP::FunctionHandle handle;
+            while ((handle = functionQueue.get_function_handle_check_once())) num = handle.call_and_pop(num);
+        }
+    }
+
+    fmt::print("result : {}\n\n", num);
+}
+
+void test(boost::circular_buffer<folly::Function<ComputeFunctionSig>> &computeQueue) noexcept {
+    size_t num = 0;
+    {
+        Timer timer{"boost::circular_buffer<folly::Function>"};
+        while (!computeQueue.empty()) {
+            num = computeQueue.front()(num);
+            computeQueue.pop_front();
+        }
+    }
+    fmt::print("result : {}\n\n", num);
+}
+
+void test(boost::circular_buffer<std::function<ComputeFunctionSig>> &computeStdQueue) noexcept {
+    size_t num = 0;
+    {
+        Timer timer{"boost::circular_buffer<std::function>"};
+        while (!computeStdQueue.empty()) {
+            num = computeStdQueue.front()(num);
+            computeStdQueue.pop_front();
+        }
+    }
+    fmt::print("result : {}\n\n", num);
+}
 
 int main(int argc, char **argv) {
     if (argc == 1) { fmt::print("usage : ./fq_test_call_and_pop <buffer_size> <seed>\n"); }
@@ -26,11 +101,7 @@ int main(int argc, char **argv) {
     fmt::print("seed : {}\n", seed);
 
 
-    auto const functionQueueBuffer =
-            std::make_unique<std::aligned_storage_t<ComputeFunctionQueue::BUFFER_ALIGNMENT, sizeof(std::byte)>[]>(
-                    functionQueueBufferSize);
-    ComputeFunctionQueue functionQueue{std::bit_cast<std::byte *>(functionQueueBuffer.get()), functionQueueBufferSize};
-
+    FunctionQueueData<FunctionQueueType> fq_data{functionQueueBufferSize};
 
     CallbackGenerator callbackGenerator{seed};
     size_t const compute_functors = [&] {
@@ -41,8 +112,8 @@ int main(int argc, char **argv) {
         while (addFunction) {
             ++functions;
             callbackGenerator.addCallback(util::overload(
-                    [&]<typename T>(T &&t) { addFunction = functionQueue.push_back(std::forward<T>(t)); },
-                    [&]<auto fp> { addFunction = functionQueue.push_back<fp>(); }));
+                    [&]<typename T>(T &&t) { addFunction = fq_data.functionQueue.push_back(std::forward<T>(t)); },
+                    [&]<auto fp> { addFunction = fq_data.functionQueue.push_back<fp>(); }));
         }
         --functions;
 
@@ -81,49 +152,13 @@ int main(int argc, char **argv) {
                (follyFunctionAllocs + computeQueue.size() * sizeof(folly::Function<ComputeFunctionSig>)) / ONE_MiB);
     fmt::print("boost::circular_buffer<std::function> memory footprint : {} MiB\n",
                (stdFunctionAllocs + computeStdQueue.size() * sizeof(std::function<ComputeFunctionSig>)) / ONE_MiB);
-    fmt::print("function queue memory footprint : {} MiB\n\n", functionQueue.buffer_size() / ONE_MiB);
-
-    void test(boost::circular_buffer<folly::Function<ComputeFunctionSig>> &) noexcept;
-    void test(boost::circular_buffer<std::function<ComputeFunctionSig>> &) noexcept;
-    void test(ComputeFunctionQueue &) noexcept;
+    fmt::print("function queue memory footprint : {} MiB\n\n", fq_data.functionQueue.buffer_size() / ONE_MiB);
 
     test(computeQueue);
     test(computeStdQueue);
-    test(functionQueue);
+    test(fq_data.functionQueue);
 }
 
-void test(ComputeFunctionQueue &functionQueue) noexcept {
-    size_t num = 0;
-    {
-        Timer timer{"function queue"};
-        while (!functionQueue.empty()) { num = functionQueue.call_and_pop(num); }
-    }
-    fmt::print("result : {}\n\n", num);
-}
-
-void test(boost::circular_buffer<folly::Function<ComputeFunctionSig>> &computeQueue) noexcept {
-    size_t num = 0;
-    {
-        Timer timer{"boost::circular_buffer<folly::Function>"};
-        while (!computeQueue.empty()) {
-            num = computeQueue.front()(num);
-            computeQueue.pop_front();
-        }
-    }
-    fmt::print("result : {}\n\n", num);
-}
-
-void test(boost::circular_buffer<std::function<ComputeFunctionSig>> &computeStdQueue) noexcept {
-    size_t num = 0;
-    {
-        Timer timer{"boost::circular_buffer<std::function>"};
-        while (!computeStdQueue.empty()) {
-            num = computeStdQueue.front()(num);
-            computeStdQueue.pop_front();
-        }
-    }
-    fmt::print("result : {}\n\n", num);
-}
 
 void *operator new(size_t bytes) {
     *bytes_allocated += bytes;

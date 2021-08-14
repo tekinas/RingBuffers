@@ -4,22 +4,15 @@ threads = dependency('threads')
 
 boost_header_only = dependency('boost')
 fmt = dependency('fmt')
-tcmalloc = dependency('libtcmalloc')
 folly = dependency('folly_header_only')
 
-project_deps = declare_dependency(dependencies : [threads, folly, fmt, boost_header_only, tcmalloc]) 
+project_deps = declare_dependency(dependencies : [threads, fmt, folly, boost_header_only]) 
 
 executable('fq_test_1r_1w', 'src/tests/fq_test_1r_1w.cpp' , dependencies : project_deps)
-executable('fq_test_1r_nw', 'src/tests/fq_test_1r_nw.cpp' , dependencies : project_deps)
-executable('fq_test_nr_nw', 'src/tests/fq_test_nr_nw.cpp' , dependencies : project_deps)
-executable('fq_test_nr_1w', 'src/tests/fq_test_nr_1w.cpp' , dependencies : project_deps)
 executable('fq_test_mr_mw', 'src/tests/fq_test_mr_mw.cpp' , dependencies : project_deps)
-executable('fq_test_nr_nw_asio', 'src/tests/fq_test_nr_nw_asio.cpp' , dependencies : project_deps)
 
 executable('fq_test_call_vector', 'src/tests/fq_test_call_vector.cpp' , dependencies : [fmt, folly, boost_header_only])
 executable('fq_test_call_queue', 'src/tests/fq_test_call_queue.cpp' , dependencies : [fmt, folly, boost_header_only])
 
 executable('oq_test_1r_1w', 'src/tests/oq_test_1r_1w.cpp' , dependencies : project_deps)
 executable('oq_test_nr_1w', 'src/tests/oq_test_nr_1w.cpp' , dependencies : project_deps)
-
-executable('dq_test_1r_1w' ,'src/tests/dq_test_1r_1w.cpp' , dependencies : project_deps)

@@ -69,8 +69,6 @@ private:
 
         std::byte *getNextAddr() const noexcept { return next_addr; }
 
-        Storage getWrapped(std::byte *wrap_addr) const noexcept { return {fc_ptr, callable_ptr, wrap_addr}; }
-
         template<typename Callable, typename... CArgs>
         void construct(rb_detail::Type<Callable>, CArgs &&...args) const noexcept {
             uint16_t const callable_offset = callable_ptr - fc_ptr;
@@ -217,7 +215,8 @@ public:
         if (!storage) return false;
 
         storage.construct(rb_detail::Type<Callable>{}, std::forward<CArgs>(args)...);
-        m_InputPos.store(storage.getNextAddr(), std::memory_order::release);
+        auto const next_addr = storage.getNextAddr() < m_BufferEnd ? storage.getNextAddr() : m_Buffer;
+        m_InputPos.store(next_addr, std::memory_order::release);
 
         return true;
     }
@@ -267,11 +266,9 @@ private:
         auto const buffer_end = m_BufferEnd;
 
         constexpr auto getAlignedStorage = Storage::template getAlignedStorage<obj_align, obj_size>;
-        if (auto const storage = getAlignedStorage(input_pos); input_pos >= output_pos) {
-            if (storage.getNextAddr() < buffer_end) return storage;
-            else if (output_pos != buffer_start)
-                return storage.getWrapped(buffer_start);
-        } else if (storage.getNextAddr() < output_pos)
+        if (auto const storage = getAlignedStorage(input_pos);
+            (storage.getNextAddr() < output_pos) ||
+            ((input_pos >= output_pos) && ((storage.getNextAddr() < buffer_end) || (output_pos - buffer_start))))
             return storage;
 
         return {};

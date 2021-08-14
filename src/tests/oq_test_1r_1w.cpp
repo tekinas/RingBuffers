@@ -67,7 +67,7 @@ using ObjectQueueSCSP = ObjectQueue_SCSP<Obj, false, false>;
 using ObjectQueueMCSP = ObjectQueue_MCSP<Obj, false>;
 using FunctionQueueSCSP =
         FunctionQueue_SCSP<size_t(Obj::RNG &, size_t), false, false, false, alignof(Obj) + sizeof(Obj)>;
-using FunctionQueueMCSP = FunctionQueue_MCSP<size_t(Obj::RNG &, size_t), false, false>;
+using FunctionQueueMCSP = FunctionQueue_MCSP<size_t(Obj::RNG &, size_t), false, false, alignof(Obj) + sizeof(Obj)>;
 using BufferQueueSCSP = BufferQueue_SCSP<false, false, alignof(Obj)>;
 using BufferQueueMCSP = BufferQueue_MCSP<false, alignof(Obj)>;
 
@@ -296,7 +296,11 @@ int main(int argc, char **argv) {
 
     {
         fmt::print("\nfunction queue mcsp test ...\n");
-        FunctionQueueMCSP funtionQueue{reinterpret_cast<std::byte *>(buffer.get()), sizeof(Obj) * capacity};
+        size_t const buffer_size = sizeof(Obj) * capacity;
+        auto const cleanOffsetArray =
+                std::make_unique<std::atomic<uint16_t>[]>(FunctionQueueMCSP::clean_array_size(buffer_size));
+        FunctionQueueMCSP funtionQueue{reinterpret_cast<std::byte *>(buffer.get()), sizeof(Obj) * capacity,
+                                       cleanOffsetArray.get()};
         test(funtionQueue, objects, seed);
     }
 }
