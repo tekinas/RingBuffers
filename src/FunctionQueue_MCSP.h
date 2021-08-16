@@ -19,29 +19,6 @@ class FunctionQueue_MCSP {};
 template<typename R, typename... Args, bool isWriteProtected, bool destroyNonInvoked, size_t max_obj_footprint>
 class FunctionQueue_MCSP<R(Args...), isWriteProtected, destroyNonInvoked, max_obj_footprint> {
 private:
-    class TaggedUint32 {
-    public:
-        TaggedUint32() noexcept = default;
-
-        friend bool operator==(TaggedUint32 const &l, TaggedUint32 const &r) noexcept {
-            return l.value == r.value && l.tag == r.tag;
-        }
-
-        uint32_t getValue() const noexcept { return value; }
-
-        uint32_t getTag() const noexcept { return tag; }
-
-        TaggedUint32 getIncrTagged(uint32_t new_value) const noexcept { return {new_value, tag + 1}; }
-
-        TaggedUint32 getSameTagged(uint32_t new_value) const noexcept { return {new_value, tag}; }
-
-    private:
-        TaggedUint32(uint32_t value, uint32_t index) noexcept : value{value}, tag{index} {}
-
-        alignas(std::atomic<uint64_t>) uint32_t value{};
-        uint32_t tag{};
-    };
-
     class Storage;
 
     class FunctionContext {
@@ -70,22 +47,22 @@ private:
 
         uint16_t getStride() const noexcept { return stride; }
 
-        void free(std::atomic<uint16_t> *cleanOffsetArray) noexcept {
-            cleanOffsetArray[cleanArrayIndex].store(stride, std::memory_order::release);
+        void free(std::atomic<uint16_t> *strideArray) noexcept {
+            strideArray[strideArrayIndex].store(stride, std::memory_order::release);
         }
 
     private:
         template<typename Callable>
         FunctionContext(rb_detail::Type<Callable>, uint16_t callable_offset, uint16_t stride,
-                        uint32_t cleanArrayIndex) noexcept
+                        uint32_t strideArrayIndex) noexcept
             : fp_offset{getFpOffset(&invokeAndDestroy<Callable>)}, destroyFp_offset{getFpOffset(&destroy<Callable>)},
-              callable_offset{callable_offset}, stride{stride}, cleanArrayIndex{cleanArrayIndex} {}
+              callable_offset{callable_offset}, stride{stride}, strideArrayIndex{strideArrayIndex} {}
 
         uint32_t const fp_offset;
         [[no_unique_address]] std::conditional_t<destroyNonInvoked, uint32_t const, rb_detail::Empty> destroyFp_offset;
         uint16_t const callable_offset;
         uint16_t const stride;
-        uint32_t const cleanArrayIndex;
+        uint32_t const strideArrayIndex;
 
         friend class Storage;
     };
@@ -103,26 +80,26 @@ private:
             uint16_t const callable_offset = callable_ptr - fc_ptr;
             uint16_t const stride = next_addr - fc_ptr;
 
-            new (fc_ptr) FunctionContext{rb_detail::Type<Callable>{}, callable_offset, stride, cleanArrayIndex};
+            new (fc_ptr) FunctionContext{rb_detail::Type<Callable>{}, callable_offset, stride, strideArrayIndex};
             new (callable_ptr) Callable{std::forward<CArgs>(args)...};
         }
 
         template<size_t obj_align, size_t obj_size>
-        static Storage getAlignedStorage(std::byte *buffer_start, uint32_t cleanArrayIndex) noexcept {
+        static Storage getAlignedStorage(std::byte *buffer_start, uint32_t strideArrayIndex) noexcept {
             auto const fc_ptr = buffer_start;
             auto const obj_ptr = align<std::byte, obj_align>(fc_ptr + sizeof(FunctionContext));
             auto const next_addr = align<std::byte, alignof(FunctionContext)>(obj_ptr + obj_size);
-            return {fc_ptr, obj_ptr, next_addr, cleanArrayIndex};
+            return {fc_ptr, obj_ptr, next_addr, strideArrayIndex};
         }
 
     private:
-        Storage(std::byte *fc_ptr, std::byte *callable_ptr, std::byte *next_addr, uint32_t cleanArrayIndex) noexcept
-            : fc_ptr{fc_ptr}, callable_ptr{callable_ptr}, next_addr{next_addr}, cleanArrayIndex{cleanArrayIndex} {}
+        Storage(std::byte *fc_ptr, std::byte *callable_ptr, std::byte *next_addr, uint32_t strideArrayIndex) noexcept
+            : fc_ptr{fc_ptr}, callable_ptr{callable_ptr}, next_addr{next_addr}, strideArrayIndex{strideArrayIndex} {}
 
         std::byte *fc_ptr{};
         std::byte *callable_ptr;
         std::byte *next_addr;
-        uint32_t cleanArrayIndex;
+        uint32_t strideArrayIndex;
     };
 
     static constexpr inline size_t function_context_footprint = alignof(FunctionContext) + sizeof(FunctionContext);
@@ -144,7 +121,7 @@ public:
         FunctionHandle() noexcept = default;
 
         FunctionHandle(FunctionHandle &&other) noexcept
-            : functionCxtPtr{std::exchange(other.functionCxtPtr, nullptr)}, cleanOffsetArray{other.cleanOffsetArray} {}
+            : functionCxtPtr{std::exchange(other.functionCxtPtr, nullptr)}, strideArray{other.strideArray} {}
 
         FunctionHandle(FunctionHandle const &) = delete;
         FunctionHandle &operator=(FunctionHandle const &other) = delete;
@@ -152,8 +129,8 @@ public:
         operator bool() const noexcept { return functionCxtPtr; }
 
         R call_and_pop(Args... args) noexcept {
-            rb_detail::ScopeGaurd const clean_up = {[&] {
-                functionCxtPtr->free(cleanOffsetArray);
+            rb_detail::ScopeGaurd const free_function_cxt = {[&] {
+                functionCxtPtr->free(strideArray);
                 functionCxtPtr = nullptr;
             }};
 
@@ -164,7 +141,7 @@ public:
         FunctionHandle &operator=(FunctionHandle &&other) noexcept {
             if (functionCxtPtr) release();
             functionCxtPtr = std::exchange(other.functionCxtPtr, nullptr);
-            cleanOffsetArray = other.cleanOffsetArray;
+            strideArray = other.strideArray;
             return *this;
         }
 
@@ -175,16 +152,16 @@ public:
     private:
         void release() {
             if constexpr (destroyNonInvoked) functionCxtPtr->destroyFO();
-            functionCxtPtr->free(cleanOffsetArray);
+            functionCxtPtr->free(strideArray);
         }
 
         friend class FunctionQueue_MCSP;
 
-        explicit FunctionHandle(FunctionContext *fcp, std::atomic<uint16_t> *cleanOffsetArray) noexcept
-            : functionCxtPtr{fcp}, cleanOffsetArray{cleanOffsetArray} {}
+        explicit FunctionHandle(FunctionContext *fcp, std::atomic<uint16_t> *strideArray) noexcept
+            : functionCxtPtr{fcp}, strideArray{strideArray} {}
 
         FunctionContext *functionCxtPtr{};
-        std::atomic<uint16_t> *cleanOffsetArray;
+        std::atomic<uint16_t> *strideArray;
     };
 
     static constexpr uint32_t clean_array_size(size_t buffer_size) noexcept {
@@ -192,10 +169,10 @@ public:
     }
 
     FunctionQueue_MCSP(std::byte *buffer, size_t size, std::atomic<uint16_t> *cleanOffsetArray) noexcept
-        : m_Buffer{buffer}, m_CleanOffsetArray{cleanOffsetArray},
-          m_BufferEndOffset{static_cast<uint32_t>(size - sentinel_region_size)}, m_CleanOffsetArraySize{
+        : m_Buffer{buffer}, m_StrideArray{cleanOffsetArray},
+          m_BufferEndOffset{static_cast<uint32_t>(size - sentinel_region_size)}, m_StrideArraySize{
                                                                                          clean_array_size(size)} {
-        resetCleanOffsetArray();
+        resetStrideArray();
     }
 
     ~FunctionQueue_MCSP() noexcept {
@@ -224,21 +201,19 @@ public:
         }};
 
         if (destroyNonInvoked) destroyAllFO();
-        resetCleanOffsetArray();
+        resetStrideArray();
 
         m_InputOffset.store({}, std::memory_order::relaxed);
-        m_CleanArrayAlloc = 0;
-        m_CleanArrayFollow = 0;
+        m_StrideHeadIndex = 0;
+        m_StrideTailIndex = 0;
         m_OutputFollowOffset = 0;
         m_OutputReadOffset.store({}, std::memory_order::relaxed);
     }
 
-    FunctionHandle get_function_handle() const noexcept {
-        return FunctionHandle{getFunctionContext(), m_CleanOffsetArray};
-    }
+    FunctionHandle get_function_handle() const noexcept { return FunctionHandle{getFunctionContext(), m_StrideArray}; }
 
     FunctionHandle get_function_handle_check_once() const noexcept {
-        return FunctionHandle{getFunctionContextCheckOnce(), m_CleanOffsetArray};
+        return FunctionHandle{getFunctionContextCheckOnce(), m_StrideArray};
     }
 
     template<auto invokable>
@@ -285,8 +260,8 @@ public:
 
         m_InputOffset.store(nextInputOffset, std::memory_order::release);
 
-        ++m_CleanArrayAlloc;
-        if (m_CleanArrayAlloc == m_CleanOffsetArraySize) m_CleanArrayAlloc = 0;
+        ++m_StrideHeadIndex;
+        if (m_StrideHeadIndex == m_StrideArraySize) m_StrideHeadIndex = 0;
 
         if (nextInputOffset.getTag() == 0) {
             auto output_offset = nextInputOffset;
@@ -320,7 +295,7 @@ private:
 
     FunctionContext *getFunctionContext() const noexcept {
         FunctionContext *fcxt_ptr;
-        TaggedUint32 next_output_offset;
+        rb_detail::TaggedUint32 next_output_offset;
 
         auto output_offset = m_OutputReadOffset.load(std::memory_order::relaxed);
         do {
@@ -358,42 +333,35 @@ private:
     }
 
     void cleanMemory() noexcept {
-        auto const alloc_index = m_CleanArrayAlloc;
-        auto follow_index = m_CleanArrayFollow;
-        auto output_follow_offset = m_OutputFollowOffset;
+        auto output_offset = m_OutputFollowOffset;
+        auto clean_range = [&output_offset, stride_array = m_StrideArray,
+                            buffer_end_offset = m_BufferEndOffset](uint32_t index, uint32_t end) {
+            for (; index != end; ++index)
+                if (auto const stride = stride_array[index].load(std::memory_order::acquire); stride) {
+                    output_offset += stride;
+                    if (output_offset > buffer_end_offset) output_offset = 0;
+                    stride_array[index].store(0, std::memory_order::relaxed);
+                } else
+                    break;
 
-        auto forward_output_offset = [this, &follow_index, &output_follow_offset] {
-            auto const stride = m_CleanOffsetArray[follow_index].load(std::memory_order::acquire);
-            if (stride) {
-                m_CleanOffsetArray[follow_index].store(0, std::memory_order::relaxed);
-                output_follow_offset += stride;
-                if (output_follow_offset > m_BufferEndOffset) output_follow_offset = 0;
-                ++follow_index;
-                return true;
-            } else
-                return false;
+            return index;
         };
 
-        if (follow_index == alloc_index) return;
-        else if (follow_index > alloc_index) {
-            while (follow_index != m_CleanOffsetArraySize) {
-                if (!forward_output_offset()) goto UPDATE_STATE_N_RETURN;
-            }
-            follow_index = 0;
+        if (m_StrideTailIndex == m_StrideHeadIndex) return;
+        else if (m_StrideTailIndex > m_StrideHeadIndex) {
+            m_StrideTailIndex = clean_range(m_StrideTailIndex, m_StrideArraySize);
+            m_OutputFollowOffset = output_offset;
+            if (m_StrideTailIndex != m_StrideArraySize) return;
+            else
+                m_StrideTailIndex = 0;
         }
 
-        while (follow_index != alloc_index) {
-            if (!forward_output_offset()) break;
-        }
-
-    UPDATE_STATE_N_RETURN:
-        m_CleanArrayFollow = follow_index;
-        m_OutputFollowOffset = output_follow_offset;
+        m_StrideTailIndex = clean_range(m_StrideTailIndex, m_StrideHeadIndex);
+        m_OutputFollowOffset = output_offset;
     }
 
-    void resetCleanOffsetArray() noexcept {
-        for (uint32_t i = 0; i != m_CleanOffsetArraySize; ++i)
-            m_CleanOffsetArray[i].store(0, std::memory_order::relaxed);
+    void resetStrideArray() noexcept {
+        for (uint32_t i = 0; i != m_StrideArraySize; ++i) m_StrideArray[i].store(0, std::memory_order::relaxed);
     }
 
     void destroyAllFO() {
@@ -407,10 +375,10 @@ private:
         auto const output_pos = m_Buffer + m_OutputFollowOffset;
         auto const buffer_start = m_Buffer;
         auto const buffer_end = m_Buffer + m_BufferEndOffset;
-        auto const cleanArrayIndex = m_CleanArrayAlloc;
+        auto const strideArrayIndex = m_StrideHeadIndex;
 
         constexpr auto getAlignedStorage = Storage::template getAlignedStorage<obj_align, obj_size>;
-        if (auto const storage = getAlignedStorage(input_pos, cleanArrayIndex);
+        if (auto const storage = getAlignedStorage(input_pos, strideArrayIndex);
             (storage.getNextAddr() < output_pos) ||
             ((input_pos >= output_pos) && ((storage.getNextAddr() < buffer_end) || (output_pos - buffer_start))))
             return storage;
@@ -435,19 +403,19 @@ private:
 private:
     static constexpr uint32_t INVALID_INDEX{std::numeric_limits<uint32_t>::max()};
 
-    std::atomic<TaggedUint32> m_InputOffset{};
+    std::atomic<rb_detail::TaggedUint32> m_InputOffset{};
     uint32_t m_OutputFollowOffset{};
-    uint32_t m_CleanArrayAlloc{};
-    uint32_t m_CleanArrayFollow{};
+    uint32_t m_StrideHeadIndex{};
+    uint32_t m_StrideTailIndex{};
 
     [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, rb_detail::Empty> m_WriteFlag{};
 
-    mutable std::atomic<TaggedUint32> m_OutputReadOffset{};
+    mutable std::atomic<rb_detail::TaggedUint32> m_OutputReadOffset{};
 
     std::byte *const m_Buffer;
-    std::atomic<uint16_t> *const m_CleanOffsetArray;
+    std::atomic<uint16_t> *const m_StrideArray;
     uint32_t const m_BufferEndOffset;
-    uint32_t const m_CleanOffsetArraySize;
+    uint32_t const m_StrideArraySize;
 };
 
 #endif
