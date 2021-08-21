@@ -9,8 +9,10 @@
 #include <atomic>
 #include <bit>
 #include <boost/container_hash/hash.hpp>
+#include <boost/lockfree/queue.hpp>
 
 #include <mutex>
+#include <shared_mutex>
 #include <thread>
 #include <vector>
 
@@ -21,6 +23,9 @@ using util::Timer;
 class Obj {
 public:
     using RNG = Random<boost::random::mt19937_64>;
+
+    Obj() noexcept = default;
+
     explicit Obj(RNG &rng) noexcept
         : a{rng.getRand<uint64_t>(std::numeric_limits<uint64_t>::min(), std::numeric_limits<uint64_t>::max())},
           b{rng.getRand<float>(std::numeric_limits<float>::min(), std::numeric_limits<float>::max())},
@@ -45,11 +50,14 @@ private:
     uint32_t c;
 };
 
+using BoostQueue = boost::lockfree::queue<Obj>;
 using ObjectQueue = ObjectQueue_MCSP<Obj, false>;
 using FunctionQueue = FunctionQueue_MCSP<uint64_t(Obj::RNG &), false, false>;
 using BufferQueue = BufferQueue_MCSP<false, alignof(Obj)>;
 
-void test(ObjectQueue &objectQueue, uint16_t threads, uint32_t objects, std::size_t seed) noexcept {
+template<typename ObjectQueueType>
+requires std::same_as<ObjectQueueType, BoostQueue> || std::same_as<ObjectQueueType, ObjectQueue>
+void test(ObjectQueueType &objectQueue, uint16_t threads, uint32_t objects, std::size_t seed) noexcept {
     std::vector<uint64_t> final_result;
     std::mutex final_result_mutex;
 
@@ -68,14 +76,24 @@ void test(ObjectQueue &objectQueue, uint16_t threads, uint32_t objects, std::siz
                     {
                         Timer timer{"read time "};
 
-                        while (true) {
-                            if (auto ptr = objectQueue.consume()) {
-                                local_result.push_back((*ptr)(rng));
-                            } else if (is_done.load(std::memory_order_relaxed))
-                                break;
-                            else
-                                std::this_thread::yield();
-                        }
+
+                        if constexpr (std::same_as<ObjectQueueType, BoostQueue>)
+                            while (true) {
+                                if (Obj obj; objectQueue.pop(obj)) local_result.push_back(obj(rng));
+                                else if (is_done.load(std::memory_order_relaxed))
+                                    break;
+                                else
+                                    std::this_thread::yield();
+                            }
+                        if constexpr (std::same_as<ObjectQueueType, ObjectQueue>)
+                            while (true) {
+                                if (auto ptr = objectQueue.consume()) {
+                                    local_result.push_back((*ptr)(rng));
+                                } else if (is_done.load(std::memory_order_relaxed))
+                                    break;
+                                else
+                                    std::this_thread::yield();
+                            }
                     }
 
                     fmt::print("thread {} finished.\n", i);
@@ -87,10 +105,11 @@ void test(ObjectQueue &objectQueue, uint16_t threads, uint32_t objects, std::siz
     std::jthread writer{[&, rng = Obj::RNG{seed}]() mutable noexcept {
         start_flag.wait();
 
-        auto obj = objects;
-        while (obj) {
-            while (!objectQueue.emplace_back(rng)) std::this_thread::yield();
-            --obj;
+        auto o = objects;
+        while (o) {
+            Obj obj{rng};
+            while (!objectQueue.push(obj)) std::this_thread::yield();
+            --o;
         }
 
         fmt::print("writer thread finished, objects processed : {}\n", objects);
@@ -143,11 +162,11 @@ void test(FunctionQueue &functionQueue, uint16_t threads, uint32_t objects, std:
     std::jthread writer{[&, rng = Obj::RNG{seed}]() mutable noexcept {
         start_flag.wait();
 
-        auto obj = objects;
-        while (obj) {
-            Obj object{rng};
-            while (!functionQueue.push_back(object)) std::this_thread::yield();
-            --obj;
+        auto o = objects;
+        while (o) {
+            Obj obj{rng};
+            while (!functionQueue.push_back(obj)) std::this_thread::yield();
+            --o;
         }
 
         fmt::print("writer thread finished, objects processed : {}\n", objects);
@@ -201,13 +220,14 @@ void test(BufferQueue &bufferQueue, uint16_t threads, uint32_t objects, std::siz
     std::jthread writer{[&, rng = Obj::RNG{seed}]() mutable noexcept {
         start_flag.wait();
 
-        auto obj = objects;
-        while (obj) {
+        auto o = objects;
+        while (o) {
+            Obj obj{rng};
             if (bufferQueue.allocate_and_release(sizeof(Obj), [&](std::span<std::byte> buffer) noexcept {
-                    std::construct_at(std::bit_cast<Obj *>(buffer.data()), rng);
+                    std::construct_at(std::bit_cast<Obj *>(buffer.data()), obj);
                     return sizeof(Obj);
                 }))
-                --obj;
+                --o;
             else
                 std::this_thread::yield();
         }
@@ -239,6 +259,12 @@ int main(int argc, char **argv) {
     auto buffer = std::make_unique<
             std::aligned_storage_t<sizeof(Obj), std::max(FunctionQueue::BUFFER_ALIGNMENT, alignof(Obj))>[]>(
             object_count);
+
+    {
+        fmt::print("\nBoost Queue test ....\n");
+        BoostQueue boostqueue{object_count};
+        test(boostqueue, num_threads, objects, seed);
+    }
 
     {
         fmt::print("\nObject Queue test ....\n");
