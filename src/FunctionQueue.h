@@ -229,8 +229,8 @@ private:
     template<typename FPtr>
     requires std::is_function_v<std::remove_pointer_t<FPtr>>
     static auto getFp(uint32_t fp_offset) noexcept {
-        const uintptr_t fp_base = 0;
-        //std::bit_cast<uintptr_t>(&fp_base_func) & static_cast<uintptr_t>(0XFFFFFFFF00000000lu);
+        const uintptr_t fp_base =
+                std::bit_cast<uintptr_t>(&fp_base_func) & static_cast<uintptr_t>(0XFFFFFFFF00000000lu);
         return std::bit_cast<FPtr>(fp_base + fp_offset);
     }
 

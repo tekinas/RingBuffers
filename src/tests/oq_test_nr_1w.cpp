@@ -22,7 +22,7 @@ class Obj {
 public:
     using RNG = Random<boost::random::mt19937_64>;
     explicit Obj(RNG &rng) noexcept
-        : a{rng.getRand<uint64_t>(std::numeric_limits<uint64_t>::min() + 1, std::numeric_limits<uint64_t>::max())},
+        : a{rng.getRand<uint64_t>(std::numeric_limits<uint64_t>::min(), std::numeric_limits<uint64_t>::max())},
           b{rng.getRand<float>(std::numeric_limits<float>::min(), std::numeric_limits<float>::max())},
           c{rng.getRand<uint32_t>(std::numeric_limits<uint32_t>::min(), std::numeric_limits<uint32_t>::max())} {}
 
@@ -40,21 +40,10 @@ public:
     }
 
 private:
-    friend bool OQ_IsObjectFree(Obj *ptr) noexcept;
-    friend void OQ_FreeObject(Obj *ptr) noexcept;
-
     uint64_t a;
     float b;
     uint32_t c;
 };
-
-bool OQ_IsObjectFree(Obj *ptr) noexcept {
-    return std::bit_cast<std::atomic<uint64_t> *>(&std::launder(ptr)->a)->load(std::memory_order_acquire) == 0;
-}
-
-void OQ_FreeObject(Obj *ptr) noexcept {
-    std::bit_cast<std::atomic<uint64_t> *>(&std::launder(ptr)->a)->store(0, std::memory_order_release);
-}
 
 using ObjectQueue = ObjectQueue_MCSP<Obj, false>;
 using FunctionQueue = FunctionQueue_MCSP<uint64_t(Obj::RNG &), false, false>;
@@ -252,17 +241,18 @@ int main(int argc, char **argv) {
             object_count);
 
     {
+        fmt::print("\nObject Queue test ....\n");
+        auto const clean_array = std::make_unique<std::atomic<bool>[]>(object_count);
+        ObjectQueue objectQueue{reinterpret_cast<Obj *>(buffer.get()), clean_array.get(), object_count};
+        test(objectQueue, num_threads, objects, seed);
+    }
+
+    {
         fmt::print("\nFunction Queue test ....\n");
         constexpr size_t buffer_size = object_count * sizeof(Obj);
         auto cleanOffsetArray = std::make_unique<std::atomic<uint16_t>[]>(FunctionQueue::clean_array_size(buffer_size));
         FunctionQueue functionQueue{std::bit_cast<std::byte *>(buffer.get()), buffer_size, cleanOffsetArray.get()};
         test(functionQueue, num_threads, objects, seed);
-    }
-
-    {
-        fmt::print("\nObject Queue test ....\n");
-        ObjectQueue objectQueue{reinterpret_cast<Obj *>(buffer.get()), object_count};
-        test(objectQueue, num_threads, objects, seed);
     }
 
     {

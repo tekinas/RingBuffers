@@ -26,10 +26,11 @@ using util::Timer;
 class Obj {
 public:
     using RNG = Random<boost::random::mt19937_64>;
+
     Obj() noexcept = default;
 
     explicit Obj(RNG &rng) noexcept
-        : a{rng.getRand<uint64_t>(std::numeric_limits<uint64_t>::min() + 1, std::numeric_limits<uint64_t>::max())},
+        : a{rng.getRand<uint64_t>(std::numeric_limits<uint64_t>::min(), std::numeric_limits<uint64_t>::max())},
           b{rng.getRand<float>(std::numeric_limits<float>::min(), std::numeric_limits<float>::max())},
           c{rng.getRand<uint32_t>(std::numeric_limits<uint32_t>::min(), std::numeric_limits<uint32_t>::max())} {}
 
@@ -46,21 +47,10 @@ public:
     }
 
 private:
-    friend bool OQ_IsObjectFree(Obj *ptr) noexcept;
-    friend void OQ_FreeObject(Obj *ptr) noexcept;
-
     uint64_t a;
     float b;
     uint32_t c;
 };
-
-bool OQ_IsObjectFree(Obj *ptr) noexcept {
-    return std::bit_cast<std::atomic<uint64_t> *>(&std::launder(ptr)->a)->load(std::memory_order_acquire) == 0;
-}
-
-void OQ_FreeObject(Obj *ptr) noexcept {
-    std::bit_cast<std::atomic<uint64_t> *>(&std::launder(ptr)->a)->store(0, std::memory_order_release);
-}
 
 using boost_queue = boost::lockfree::spsc_queue<Obj>;
 using ObjectQueueSCSP = ObjectQueue_SCSP<Obj, false, false>;
@@ -130,9 +120,10 @@ void test(ObjectQueue &objectQueue, uint32_t objects, size_t seed) noexcept {
             while (obj) {
                 if constexpr (std::is_same_v<ObjectQueue, ObjectQueueSCSP>) {
                     while (!objectQueue.reserve()) std::this_thread::yield();
-                    obj -= objectQueue.consume_all([&](Obj const &obj) { seed = obj(rng, seed); });
+                    obj -= objectQueue.consume_all([&](Obj const &obj) noexcept { seed = obj(rng, seed); });
                 } else {
-                    auto const consumed = objectQueue.consume_all([&](Obj const &obj) { seed = obj(rng, seed); });
+                    auto const consumed =
+                            objectQueue.consume_all([&](Obj const &obj) noexcept { seed = obj(rng, seed); });
                     if (consumed) obj -= consumed;
                     else
                         std::this_thread::yield();
@@ -262,17 +253,18 @@ int main(int argc, char **argv) {
         test(boostQueue, objects, seed);
     }
 
-    auto buffer = std::make_unique<std::aligned_storage_t<sizeof(Obj), alignof(Obj)>[]>(capacity);
+    auto const buffer = std::make_unique<Obj[]>(capacity);
 
     {
         fmt::print("\nobject queue scsp test ...\n");
-        ObjectQueueSCSP objectQueueSCSP{reinterpret_cast<Obj *>(buffer.get()), capacity};
+        ObjectQueueSCSP objectQueueSCSP{buffer.get(), capacity};
         test(objectQueueSCSP, objects, seed);
     }
 
     {
         fmt::print("\nobject queue mcsp test ...\n");
-        ObjectQueueMCSP objectQueueMCSP{reinterpret_cast<Obj *>(buffer.get()), capacity};
+        auto const clean_array = std::make_unique<std::atomic<bool>[]>(capacity);
+        ObjectQueueMCSP objectQueueMCSP{buffer.get(), clean_array.get(), static_cast<uint32_t>(capacity)};
         test(objectQueueMCSP, objects, seed);
     }
 

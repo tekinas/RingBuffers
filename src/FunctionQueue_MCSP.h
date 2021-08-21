@@ -180,6 +180,7 @@ public:
             if constexpr (isWriteProtected)
                 while (m_WriteFlag.test_and_set(std::memory_order::acquire))
                     ;
+
             destroyAllFO();
         }
     }
@@ -196,11 +197,12 @@ public:
         if constexpr (isWriteProtected)
             while (m_WriteFlag.test_and_set(std::memory_order::acquire))
                 ;
+
         rb_detail::ScopeGaurd const release_write_lock{[&] {
             if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::release);
         }};
 
-        if (destroyNonInvoked) destroyAllFO();
+        if constexpr (destroyNonInvoked) destroyAllFO();
         resetStrideArray();
 
         m_InputOffset.store({}, std::memory_order::relaxed);
@@ -297,18 +299,15 @@ private:
         FunctionContext *fcxt_ptr;
         rb_detail::TaggedUint32 next_output_offset;
 
+        auto const input_offset = m_InputOffset.load(std::memory_order::acquire);
         auto output_offset = m_OutputReadOffset.load(std::memory_order::relaxed);
+
         do {
-            auto const input_offset = m_InputOffset.load(std::memory_order::consume);
-
-            if ((input_offset.getTag() < output_offset.getTag()) ||
-                (input_offset.getValue() == output_offset.getValue()))
+            if (input_offset.getTag() < output_offset.getTag() || input_offset.getValue() == output_offset.getValue())
                 return nullptr;
-
             fcxt_ptr = std::bit_cast<FunctionContext *>(m_Buffer + output_offset.getValue());
             auto const next_offset = output_offset.getValue() + fcxt_ptr->getStride();
             next_output_offset = input_offset.getSameTagged(next_offset < m_BufferEndOffset ? next_offset : 0);
-
         } while (!m_OutputReadOffset.compare_exchange_weak(output_offset, next_output_offset,
                                                            std::memory_order::relaxed, std::memory_order::relaxed));
         return fcxt_ptr;
@@ -316,9 +315,9 @@ private:
 
     FunctionContext *getFunctionContextCheckOnce() const noexcept {
         auto output_offset = m_OutputReadOffset.load(std::memory_order::relaxed);
-        auto const input_offset = m_InputOffset.load(std::memory_order::consume);
+        auto const input_offset = m_InputOffset.load(std::memory_order::acquire);
 
-        if ((input_offset.getTag() < output_offset.getTag()) || (input_offset.getValue() == output_offset.getValue()))
+        if (input_offset.getTag() < output_offset.getTag() || input_offset.getValue() == output_offset.getValue())
             return nullptr;
 
         auto const fcxt_ptr = std::bit_cast<FunctionContext *>(m_Buffer + output_offset.getValue());
@@ -339,7 +338,7 @@ private:
             for (; index != end; ++index)
                 if (auto const stride = stride_array[index].load(std::memory_order::acquire); stride) {
                     output_offset += stride;
-                    if (output_offset > buffer_end_offset) output_offset = 0;
+                    if (output_offset >= buffer_end_offset) output_offset = 0;
                     stride_array[index].store(0, std::memory_order::relaxed);
                 } else
                     break;
@@ -391,8 +390,8 @@ private:
     template<typename FPtr>
     requires std::is_function_v<std::remove_pointer_t<FPtr>>
     static auto getFp(uint32_t fp_offset) noexcept {
-        const uintptr_t fp_base = 0;
-        //std::bit_cast<uintptr_t>(&fp_base_func) & static_cast<uintptr_t>(0XFFFFFFFF00000000lu);
+        const uintptr_t fp_base =
+                std::bit_cast<uintptr_t>(&fp_base_func) & static_cast<uintptr_t>(0XFFFFFFFF00000000lu);
         return std::bit_cast<FPtr>(fp_base + fp_offset);
     }
 
