@@ -128,13 +128,13 @@ public:
         }
     }
 
-    bool push_back(ObjectType &obj) noexcept { return emplace_back(obj); }
+    bool push(ObjectType &obj) noexcept { return emplace(obj); }
 
-    bool push_back(ObjectType &&obj) noexcept { return emplace_back(std::move(obj)); }
+    bool push(ObjectType &&obj) noexcept { return emplace(std::move(obj)); }
 
     template<typename... Args>
     requires std::is_nothrow_constructible_v<ObjectType, Args...>
-    bool emplace_back(Args &&...args) noexcept {
+    bool emplace(Args &&...args) noexcept {
         if constexpr (isWriteProtected) {
             if (m_WriteFlag.test_and_set(std::memory_order::acquire)) return false;
         }
