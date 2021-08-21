@@ -92,13 +92,11 @@ int main(int argc, char **argv) {
                 while (func) {
                     callbackGenerator.addCallback(util::overload(
                             [&]<typename T>(T &&t) {
-                                while (!fq_data.functionQueue.push_back(std::forward<T>(t))) {
-                                    std::this_thread::yield();
-                                }
+                                while (!fq_data.functionQueue.push(std::forward<T>(t))) { std::this_thread::yield(); }
                                 --func;
                             },
                             [&]<auto fp>() {
-                                while (!fq_data.functionQueue.push_back<fp>()) { std::this_thread::yield(); }
+                                while (!fq_data.functionQueue.push<fp>()) { std::this_thread::yield(); }
                                 --func;
                             }));
                 }

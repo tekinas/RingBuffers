@@ -79,12 +79,12 @@ void test(FunctionQueue &functionQueue, CallbackGenerator &callbackGenerator, si
         auto func = functions;
         while (func) {
             callbackGenerator.addCallback([&]<typename T>(T &&t) {
-                while (!functionQueue.push_back(std::forward<T>(t))) { std::this_thread::yield(); }
+                while (!functionQueue.push(std::forward<T>(t))) { std::this_thread::yield(); }
                 --func;
             });
         }
 
-        while (!functionQueue.push_back([](auto) noexcept { return std::numeric_limits<size_t>::max(); }))
+        while (!functionQueue.push([](auto) noexcept { return std::numeric_limits<size_t>::max(); }))
             ;
     }};
 

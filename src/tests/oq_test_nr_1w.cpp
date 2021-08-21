@@ -1,6 +1,7 @@
 #include "../BufferQueue_MCSP.h"
 #include "../FunctionQueue_MCSP.h"
 #include "../ObjectQueue_MCSP.h"
+#include "boost/lockfree/policies.hpp"
 #include "util.h"
 
 #include <fmt/format.h>
@@ -50,7 +51,7 @@ private:
     uint32_t c;
 };
 
-using BoostQueue = boost::lockfree::queue<Obj>;
+using BoostQueue = boost::lockfree::queue<Obj, boost::lockfree::fixed_sized<true>>;
 using ObjectQueue = ObjectQueue_MCSP<Obj, false>;
 using FunctionQueue = FunctionQueue_MCSP<uint64_t(Obj::RNG &), false, false>;
 using BufferQueue = BufferQueue_MCSP<false, alignof(Obj)>;
@@ -165,7 +166,7 @@ void test(FunctionQueue &functionQueue, uint16_t threads, uint32_t objects, std:
         auto o = objects;
         while (o) {
             Obj obj{rng};
-            while (!functionQueue.push_back(obj)) std::this_thread::yield();
+            while (!functionQueue.push(obj)) std::this_thread::yield();
             --o;
         }
 
@@ -245,7 +246,7 @@ void test(BufferQueue &bufferQueue, uint16_t threads, uint32_t objects, std::siz
 }
 
 int main(int argc, char **argv) {
-    constexpr uint32_t object_count = 10'0000;
+    constexpr uint32_t object_count = 65'534;
 
     size_t const objects = [&] { return (argc >= 2) ? atol(argv[1]) : 10'000'000; }();
     fmt::print("objects to process : {}\n", objects);

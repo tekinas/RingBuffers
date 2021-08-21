@@ -220,8 +220,8 @@ public:
 
     template<auto invokable>
     requires std::is_nothrow_invocable_r_v<R, decltype(invokable), Args...>
-    bool push_back() noexcept {
-        return push_back([](Args... args) noexcept {
+    bool push() noexcept {
+        return push([](Args... args) noexcept {
             if constexpr (std::is_function_v<std::remove_pointer_t<decltype(invokable)>>)
                 return invokable(std::forward<Args>(args)...);
             else
@@ -230,14 +230,14 @@ public:
     }
 
     template<typename T>
-    bool push_back(T &&callable) noexcept {
+    bool push(T &&callable) noexcept {
         using Callable = std::decay_t<T>;
-        return emplace_back<Callable>(std::forward<T>(callable));
+        return emplace<Callable>(std::forward<T>(callable));
     }
 
     template<typename Callable, typename... CArgs>
     requires is_valid_callable_v<Callable, CArgs...>
-    bool emplace_back(CArgs &&...args) noexcept {
+    bool emplace(CArgs &&...args) noexcept {
         if constexpr (isWriteProtected)
             if (m_WriteFlag.test_and_set(std::memory_order::acquire)) return false;
 

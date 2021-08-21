@@ -111,8 +111,8 @@ int main(int argc, char **argv) {
         while (addFunction) {
             ++functions;
             callbackGenerator.addCallback(util::overload(
-                    [&]<typename T>(T &&t) { addFunction = fq_data.functionQueue.push_back(std::forward<T>(t)); },
-                    [&]<auto fp> { addFunction = fq_data.functionQueue.push_back<fp>(); }));
+                    [&]<typename T>(T &&t) { addFunction = fq_data.functionQueue.push(std::forward<T>(t)); },
+                    [&]<auto fp> { addFunction = fq_data.functionQueue.push<fp>(); }));
         }
         --functions;
 
