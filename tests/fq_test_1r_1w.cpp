@@ -1,7 +1,7 @@
-#include "../FunctionQueue_MCSP.h"
-#include "../FunctionQueue_SCSP.h"
 #include "ComputeCallbackGenerator.h"
 #include "util.h"
+#include <RingBuffers/FunctionQueue_MCSP.h>
+#include <RingBuffers/FunctionQueue_SCSP.h>
 #include <random>
 
 #include <fmt/format.h>
