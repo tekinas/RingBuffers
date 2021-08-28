@@ -225,12 +225,10 @@ void test(BufferQueue &bufferQueue, uint16_t threads, uint32_t objects, std::siz
 
         auto o = objects;
         while (o) {
-            auto const obj_creator = [obj = Obj{rng}] {
-                return [obj](std::span<std::byte> buffer) noexcept {
-                    std::construct_at(std::bit_cast<Obj *>(buffer.data()), obj);
-                    return sizeof(Obj);
-                };
-            }();
+            auto const obj_creator = [obj = Obj{rng}](std::span<std::byte> buffer) noexcept {
+                std::construct_at(std::bit_cast<Obj *>(buffer.data()), obj);
+                return sizeof(Obj);
+            };
 
             while (!bufferQueue.allocate_and_release(sizeof(Obj), obj_creator)) std::this_thread::yield();
             --o;
