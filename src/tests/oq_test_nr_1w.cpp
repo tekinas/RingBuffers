@@ -105,7 +105,7 @@ void test(ObjectQueueType &objectQueue, uint16_t threads, uint32_t objects, std:
                     final_result.insert(final_result.end(), local_result.begin(), local_result.end());
                 });
 
-    std::jthread writer{[&, rng = Obj::RNG{seed}]() mutable noexcept {
+    std::jthread writer{[&, objects, rng = Obj::RNG{seed}]() mutable noexcept {
         start_flag.wait();
 
         auto o = objects;
@@ -162,7 +162,7 @@ void test(FunctionQueue &functionQueue, uint16_t threads, uint32_t objects, std:
                     final_result.insert(final_result.end(), local_result.begin(), local_result.end());
                 });
 
-    std::jthread writer{[&, rng = Obj::RNG{seed}]() mutable noexcept {
+    std::jthread writer{[&, objects, rng = Obj::RNG{seed}]() mutable noexcept {
         start_flag.wait();
 
         auto o = objects;
@@ -220,19 +220,21 @@ void test(BufferQueue &bufferQueue, uint16_t threads, uint32_t objects, std::siz
                     final_result.insert(final_result.end(), local_result.begin(), local_result.end());
                 });
 
-    std::jthread writer{[&, rng = Obj::RNG{seed}]() mutable noexcept {
+    std::jthread writer{[&, objects, rng = Obj::RNG{seed}]() mutable noexcept {
         start_flag.wait();
+
+        auto obj_creator = [](Obj obj) {
+            return [obj](std::span<std::byte> buffer) noexcept {
+                std::construct_at(std::bit_cast<Obj *>(buffer.data()), obj);
+                return sizeof(Obj);
+            };
+        };
 
         auto o = objects;
         while (o) {
             Obj obj{rng};
-            if (bufferQueue.allocate_and_release(sizeof(Obj), [&](std::span<std::byte> buffer) noexcept {
-                    std::construct_at(std::bit_cast<Obj *>(buffer.data()), obj);
-                    return sizeof(Obj);
-                }))
-                --o;
-            else
-                std::this_thread::yield();
+            while (!bufferQueue.allocate_and_release(sizeof(Obj), obj_creator(obj))) std::this_thread::yield();
+            --o;
         }
 
         fmt::print("writer thread finished, objects processed : {}\n", objects);
