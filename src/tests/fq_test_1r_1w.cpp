@@ -9,8 +9,8 @@
 #include <thread>
 
 using ComputeFunctionSig = size_t(size_t);
-using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
-using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, false, false>;
+using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, false>;
+using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, false>;
 using FunctionQueueType = FunctionQueueMCSP;
 
 template<typename Test, template<typename, auto...> class Ref>
@@ -56,17 +56,13 @@ void test(FunctionQueue &functionQueue, CallbackGenerator &callbackGenerator, si
             while (res != std::numeric_limits<size_t>::max()) {
                 num = res;
                 if constexpr (std::is_same_v<FunctionQueueSCSP, FunctionQueue>) {
-                    if (functionQueue.reserve()) {
-                        res = functionQueue.call_and_pop(res);
-                    } else {
+                    if (!functionQueue.empty()) res = functionQueue.call_and_pop(res);
+                    else
                         std::this_thread::yield();
-                    }
                 } else {
-                    if (auto handle = functionQueue.get_function_handle()) {
-                        res = handle.call_and_pop(res);
-                    } else {
+                    if (auto handle = functionQueue.get_function_handle()) res = handle.call_and_pop(res);
+                    else
                         std::this_thread::yield();
-                    }
                 }
             }
         }
@@ -79,7 +75,10 @@ void test(FunctionQueue &functionQueue, CallbackGenerator &callbackGenerator, si
         auto func = functions;
         while (func) {
             callbackGenerator.addCallback([&]<typename T>(T &&t) {
-                while (!functionQueue.push(std::forward<T>(t))) { std::this_thread::yield(); }
+                while (!functionQueue.push(std::forward<T>(t))) {
+                    std::this_thread::yield();
+                    if constexpr (std::is_same_v<FunctionQueueMCSP, FunctionQueue>) functionQueue.clean_memory();
+                }
                 --func;
             });
         }

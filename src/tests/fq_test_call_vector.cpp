@@ -14,8 +14,8 @@
 
 using ComputeFunctionSig = size_t(size_t);
 using FunctionQueueNC = FunctionQueue<ComputeFunctionSig, false>;
-using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, false, false, false>;
-using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, false, false>;
+using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, false>;
+using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, false>;
 using FunctionQueueType = FunctionQueueMCSP;
 
 using folly::Function;

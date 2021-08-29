@@ -9,7 +9,7 @@
 #include <type_traits>
 #include <utility>
 
-template<typename ObjectType, bool isWriteProtected>
+template<typename ObjectType>
 requires std::is_nothrow_destructible_v<ObjectType>
 class ObjectQueue_MCSP {
 public:
@@ -43,8 +43,7 @@ public:
     private:
         friend class ObjectQueue_MCSP;
 
-        explicit Ptr(ObjectType *object, std::atomic<bool> *is_clean) noexcept
-            : object_ptr{object}, is_clean{is_clean} {}
+        Ptr(ObjectType *object, std::atomic<bool> *is_clean) noexcept : object_ptr{object}, is_clean{is_clean} {}
 
         void destroyObject() const noexcept {
             std::destroy_at(object_ptr);
@@ -61,13 +60,7 @@ public:
         resetCleanArray();
     }
 
-    ~ObjectQueue_MCSP() noexcept {
-        if constexpr (isWriteProtected)
-            while (m_WriteFlag.test_and_set(std::memory_order::acquire))
-                ;
-
-        destroyAllObjects();
-    }
+    ~ObjectQueue_MCSP() { destroyAllObjects(); }
 
     ObjectType *object_array() const noexcept { return m_ObjectArray; }
 
@@ -80,20 +73,12 @@ public:
     }
 
     void clear() noexcept {
-        if constexpr (isWriteProtected)
-            while (m_WriteFlag.test_and_set(std::memory_order::acquire))
-                ;
-
-        rb_detail::ScopeGaurd const release_write_lock{[&] {
-            if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::release);
-        }};
-
         destroyAllObjects();
-        resetCleanArray();
 
         m_InputIndex.store({}, std::memory_order::relaxed);
         m_OutputTailIndex = 0;
         m_OutputHeadIndex.store({}, std::memory_order::relaxed);
+        resetCleanArray();
     }
 
     Ptr consume() const noexcept {
@@ -104,8 +89,7 @@ public:
     template<typename Functor>
     requires std::is_nothrow_invocable_v<Functor, ObjectType &>
     bool consume(Functor &&functor) const noexcept {
-        auto const obj_index = get_index();
-        if (obj_index != INVALID_INDEX) {
+        if (auto const obj_index = get_index(); obj_index != INVALID_INDEX) {
             std::forward<Functor>(functor)(m_ObjectArray[obj_index]);
             destroy(obj_index);
             return true;
@@ -118,8 +102,7 @@ public:
     const noexcept {
         uint32_t consumed{0};
         while (true) {
-            auto const obj_index = get_index();
-            if (obj_index != INVALID_INDEX) {
+            if (auto const obj_index = get_index(); obj_index != INVALID_INDEX) {
                 std::forward<Functor>(functor)(m_ObjectArray[obj_index]);
                 destroy(obj_index);
                 ++consumed;
@@ -135,30 +118,19 @@ public:
     template<typename... Args>
     requires std::is_nothrow_constructible_v<ObjectType, Args...>
     bool emplace(Args &&...args) noexcept {
-        if constexpr (isWriteProtected) {
-            if (m_WriteFlag.test_and_set(std::memory_order::acquire)) return false;
-        }
-
-        rb_detail::ScopeGaurd const release_write_lock{[&] {
-            if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::release);
-        }};
-
         auto const input_index = m_InputIndex.load(std::memory_order::relaxed);
         auto const index_value = input_index.getValue();
         auto const output_index = m_OutputTailIndex;
         auto const nextInputIndexValue = index_value == m_LastElementIndex ? 0 : (index_value + 1);
 
-        if (nextInputIndexValue == output_index) {
-            cleanMemory();
-            return false;
-        }
+        if (nextInputIndexValue == output_index) return false;
 
         std::construct_at(m_ObjectArray + index_value, std::forward<Args>(args)...);
 
         auto const nextInputIndex = input_index.getIncrTagged(nextInputIndexValue);
         m_InputIndex.store(nextInputIndex, std::memory_order::release);
 
-        if (nextInputIndex.getTag() == 0) {
+        if (nextInputIndex.getTag() == 0) [[unlikely]] {
             auto output_offset = nextInputIndex;
             while (!m_OutputHeadIndex.compare_exchange_weak(output_offset,
                                                             nextInputIndex.getSameTagged(output_offset.getValue()),
@@ -173,14 +145,6 @@ public:
     requires std::is_nothrow_invocable_r_v<uint32_t, Functor, ObjectType *, uint32_t>
             uint32_t emplace_back_n(Functor &&functor)
     noexcept {
-        if constexpr (isWriteProtected) {
-            if (m_WriteFlag.test_and_set(std::memory_order::acquire)) return false;
-        }
-
-        rb_detail::ScopeGaurd const release_write_lock{[&] {
-            if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::release);
-        }};
-
         auto const input_index = m_InputIndex.load(std::memory_order::relaxed);
         auto const index_value = input_index.getValue();
         auto const output_index = m_OutputTailIndex;
@@ -188,15 +152,13 @@ public:
                                        ? (output_index - index_value - 1)
                                        : (m_LastElementIndex - index_value + static_cast<bool>(output_index));
 
-        if (!count_avl) {
-            cleanMemory();
-            return 0;
-        }
+        if (!count_avl) return 0;
 
         auto const obj_emplaced = std::forward<Functor>(functor)(m_ObjectArray + index_value, count_avl);
         auto const input_end = index_value + obj_emplaced;
         auto const nextInputIndexValue = (input_end == (m_LastElementIndex + 1)) ? 0 : input_end;
         auto const nextInputIndex = input_index.getIncrTagged(nextInputIndexValue);
+
         m_InputIndex.store(nextInputIndex, std::memory_order::release);
 
         if (nextInputIndex.getTag() == 0) {
@@ -210,26 +172,7 @@ public:
         return obj_emplaced;
     }
 
-private:
-    uint32_t get_index() const noexcept {
-        auto next_index = [lastElement = m_LastElementIndex](uint32_t index) {
-            return index == lastElement ? 0 : index + 1;
-        };
-
-        auto const input_index = m_InputIndex.load(std::memory_order::acquire);
-        auto output_index = m_OutputHeadIndex.load(std::memory_order::relaxed);
-        rb_detail::TaggedUint32 nextOutputIndex;
-
-        do {
-            if (input_index.getTag() < output_index.getTag() || input_index.getValue() == output_index.getValue())
-                return INVALID_INDEX;
-            nextOutputIndex = input_index.getSameTagged(next_index(output_index.getValue()));
-        } while (!m_OutputHeadIndex.compare_exchange_weak(output_index, nextOutputIndex, std::memory_order::relaxed,
-                                                          std::memory_order::relaxed));
-        return output_index.getValue();
-    }
-
-    void cleanMemory() noexcept {
+    void clean_memory() noexcept {
         auto clean_range = [clean_array = m_CleanArray](uint32_t index, uint32_t end) {
             for (; index != end; ++index)
                 if (clean_array[index].load(std::memory_order::relaxed))
@@ -251,9 +194,38 @@ private:
         m_OutputTailIndex = clean_range(m_OutputTailIndex, outputHeadIndex);
     }
 
+
+private:
+    uint32_t get_index() const noexcept {
+        auto next_index = [lastElement = m_LastElementIndex](uint32_t index) {
+            return index == lastElement ? 0 : index + 1;
+        };
+
+        auto const input_index = m_InputIndex.load(std::memory_order::acquire);
+        auto output_index = m_OutputHeadIndex.load(std::memory_order::relaxed);
+        rb_detail::TaggedUint32 nextOutputIndex;
+
+        do {
+            if (input_index.getTag() < output_index.getTag() || input_index.getValue() == output_index.getValue())
+                return INVALID_INDEX;
+            nextOutputIndex = input_index.getSameTagged(next_index(output_index.getValue()));
+        } while (!m_OutputHeadIndex.compare_exchange_weak(output_index, nextOutputIndex, std::memory_order::relaxed,
+                                                          std::memory_order::relaxed));
+        return output_index.getValue();
+    }
+
     void destroyAllObjects() noexcept {
-        if constexpr (!std::is_trivially_destructible_v<ObjectType>)
-            for (uint32_t index; (index = get_index()) != INVALID_INDEX;) std::destroy_at(m_ObjectArray + index);
+        if constexpr (!std::is_trivially_destructible_v<ObjectType>) {
+            auto const input_index = m_InputIndex.load(std::memory_order::relaxed).getValue();
+            auto const output_index = m_OutputHeadIndex.load(std::memory_order::relaxed).getValue();
+
+            if (output_index == input_index) return;
+            else if (output_index > input_index) {
+                std::destroy_n(m_ObjectArray + output_index, m_LastElementIndex - output_index + 1);
+                std::destroy_n(m_ObjectArray, input_index);
+            } else
+                std::destroy_n(m_ObjectArray + output_index, input_index - output_index);
+        }
     }
 
     void destroy(uint32_t index) const noexcept {
@@ -271,8 +243,6 @@ private:
     std::atomic<rb_detail::TaggedUint32> m_InputIndex{};
     uint32_t m_OutputTailIndex{0};
     mutable std::atomic<rb_detail::TaggedUint32> m_OutputHeadIndex{};
-
-    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, rb_detail::Empty> m_WriteFlag{};
 
     uint32_t const m_LastElementIndex;
     ObjectType *const m_ObjectArray;

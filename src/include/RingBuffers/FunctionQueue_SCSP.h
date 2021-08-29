@@ -12,13 +12,11 @@
 #include <type_traits>
 #include <utility>
 
-template<typename T, bool isReadProtected, bool isWriteProtected, bool destroyNonInvoked = true,
-         size_t max_obj_footprint = alignof(std::max_align_t) + 128>
+template<typename T, bool destroyNonInvoked = true, size_t max_obj_footprint = alignof(std::max_align_t) + 128>
 class FunctionQueue_SCSP {};
 
-template<typename R, typename... Args, bool isReadProtected, bool isWriteProtected, bool destroyNonInvoked,
-         size_t max_obj_footprint>
-class FunctionQueue_SCSP<R(Args...), isReadProtected, isWriteProtected, destroyNonInvoked, max_obj_footprint> {
+template<typename R, typename... Args, bool destroyNonInvoked, size_t max_obj_footprint>
+class FunctionQueue_SCSP<R(Args...), destroyNonInvoked, max_obj_footprint> {
 private:
     class Storage;
 
@@ -112,17 +110,8 @@ public:
         : m_InputPos{buffer}, m_OutputPos{buffer}, m_Buffer{buffer}, m_BufferEnd{buffer + size - sentinel_region_size} {
     }
 
-    ~FunctionQueue_SCSP() noexcept {
-        if constexpr (destroyNonInvoked) {
-            if constexpr (isReadProtected)
-                while (m_ReadFlag.test_and_set(std::memory_order::acquire))
-                    ;
-            if constexpr (isWriteProtected)
-                while (m_WriteFlag.test_and_set(std::memory_order::acquire))
-                    ;
-
-            destroyAllNonInvoked();
-        }
+    ~FunctionQueue_SCSP() {
+        if constexpr (destroyNonInvoked) destroyAllNonInvoked();
     }
 
     std::byte *buffer() const noexcept { return m_Buffer; }
@@ -134,34 +123,10 @@ public:
     }
 
     void clear() noexcept {
-        if constexpr (isReadProtected)
-            while (m_ReadFlag.test_and_set(std::memory_order::acquire))
-                ;
-        if constexpr (isWriteProtected)
-            while (m_WriteFlag.test_and_set(std::memory_order::acquire))
-                ;
-
-        rb_detail::ScopeGaurd release_read_n_write_lock{[&] {
-            if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order::release);
-            if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::release);
-        }};
-
         if constexpr (destroyNonInvoked) destroyAllNonInvoked();
 
         m_InputPos.store(m_Buffer, std::memory_order::relaxed);
         m_OutputPos.store(m_Buffer, std::memory_order::relaxed);
-    }
-
-    bool reserve() const noexcept {
-        if constexpr (isReadProtected) {
-            if (m_ReadFlag.test_and_set(std::memory_order::acquire)) return false;
-            if (empty()) {
-                m_ReadFlag.clear(std::memory_order::relaxed);
-                return false;
-            } else
-                return true;
-        } else
-            return !empty();
     }
 
     R call_and_pop(Args... args) const noexcept {
@@ -172,7 +137,6 @@ public:
         rb_detail::ScopeGaurd const update_state{[&] {
             auto const next_addr = read_data.next_addr < m_BufferEnd ? read_data.next_addr : m_Buffer;
             m_OutputPos.store(next_addr, std::memory_order::release);
-            if constexpr (isReadProtected) m_ReadFlag.clear(std::memory_order::release);
         }};
 
         return read_data.function(read_data.callable_ptr, std::forward<Args>(args)...);
@@ -198,14 +162,6 @@ public:
     template<typename Callable, typename... CArgs>
     requires is_valid_callable_v<Callable, CArgs...>
     bool emplace(CArgs &&...args) noexcept {
-        if constexpr (isWriteProtected) {
-            if (m_WriteFlag.test_and_set(std::memory_order::acquire)) return false;
-        }
-
-        rb_detail::ScopeGaurd const release_write_lock{[&] {
-            if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::release);
-        }};
-
         constexpr bool is_callable_empty = std::is_empty_v<Callable>;
         constexpr size_t callable_align = is_callable_empty ? 1 : alignof(Callable);
         constexpr size_t callable_size = is_callable_empty ? 0 : sizeof(Callable);
@@ -290,9 +246,6 @@ private:
 private:
     std::atomic<std::byte *> m_InputPos;
     mutable std::atomic<std::byte *> m_OutputPos;
-
-    [[no_unique_address]] mutable std::conditional_t<isReadProtected, std::atomic_flag, rb_detail::Empty> m_ReadFlag{};
-    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, rb_detail::Empty> m_WriteFlag{};
 
     std::byte *const m_Buffer;
     std::byte *const m_BufferEnd;

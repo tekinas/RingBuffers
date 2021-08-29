@@ -12,12 +12,11 @@
 #include <type_traits>
 #include <utility>
 
-template<typename T, bool isWriteProtected, bool destroyNonInvoked = true,
-         size_t max_obj_footprint = alignof(std::max_align_t) + 128>
+template<typename T, bool destroyNonInvoked = true, size_t max_obj_footprint = alignof(std::max_align_t) + 128>
 class FunctionQueue_MCSP {};
 
-template<typename R, typename... Args, bool isWriteProtected, bool destroyNonInvoked, size_t max_obj_footprint>
-class FunctionQueue_MCSP<R(Args...), isWriteProtected, destroyNonInvoked, max_obj_footprint> {
+template<typename R, typename... Args, bool destroyNonInvoked, size_t max_obj_footprint>
+class FunctionQueue_MCSP<R(Args...), destroyNonInvoked, max_obj_footprint> {
 private:
     class Storage;
 
@@ -157,7 +156,7 @@ public:
 
         friend class FunctionQueue_MCSP;
 
-        explicit FunctionHandle(FunctionContext *fcp, std::atomic<uint16_t> *strideArray) noexcept
+        FunctionHandle(FunctionContext *fcp, std::atomic<uint16_t> *strideArray) noexcept
             : functionCxtPtr{fcp}, strideArray{strideArray} {}
 
         FunctionContext *functionCxtPtr{};
@@ -175,14 +174,8 @@ public:
         resetStrideArray();
     }
 
-    ~FunctionQueue_MCSP() noexcept {
-        if constexpr (destroyNonInvoked) {
-            if constexpr (isWriteProtected)
-                while (m_WriteFlag.test_and_set(std::memory_order::acquire))
-                    ;
-
-            destroyAllFO();
-        }
+    ~FunctionQueue_MCSP() {
+        if constexpr (destroyNonInvoked) destroyAllFO();
     }
 
     std::byte *buffer() const noexcept { return m_Buffer; }
@@ -194,28 +187,20 @@ public:
     }
 
     void clear() noexcept {
-        if constexpr (isWriteProtected)
-            while (m_WriteFlag.test_and_set(std::memory_order::acquire))
-                ;
-
-        rb_detail::ScopeGaurd const release_write_lock{[&] {
-            if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::release);
-        }};
-
         if constexpr (destroyNonInvoked) destroyAllFO();
-        resetStrideArray();
 
         m_InputOffset.store({}, std::memory_order::relaxed);
         m_StrideHeadIndex = 0;
         m_StrideTailIndex = 0;
         m_OutputFollowOffset = 0;
         m_OutputReadOffset.store({}, std::memory_order::relaxed);
+        resetStrideArray();
     }
 
-    FunctionHandle get_function_handle() const noexcept { return FunctionHandle{getFunctionContext(), m_StrideArray}; }
+    FunctionHandle get_function_handle() const noexcept { return {getFunctionContext(), m_StrideArray}; }
 
     FunctionHandle get_function_handle_check_once() const noexcept {
-        return FunctionHandle{getFunctionContextCheckOnce(), m_StrideArray};
+        return {getFunctionContextCheckOnce(), m_StrideArray};
     }
 
     template<auto invokable>
@@ -238,24 +223,14 @@ public:
     template<typename Callable, typename... CArgs>
     requires is_valid_callable_v<Callable, CArgs...>
     bool emplace(CArgs &&...args) noexcept {
-        if constexpr (isWriteProtected)
-            if (m_WriteFlag.test_and_set(std::memory_order::acquire)) return false;
-
-        rb_detail::ScopeGaurd const release_write_lock{[&] {
-            if constexpr (isWriteProtected) m_WriteFlag.clear(std::memory_order::release);
-        }};
-
         constexpr bool is_callable_empty = std::is_empty_v<Callable>;
         constexpr size_t callable_align = is_callable_empty ? 1 : alignof(Callable);
         constexpr size_t callable_size = is_callable_empty ? 0 : sizeof(Callable);
 
         auto const input_offset = m_InputOffset.load(std::memory_order::relaxed);
         auto const storage = getStorage<callable_align, callable_size>(input_offset.getValue());
-        if (!storage) {
-            cleanMemory();
-            return false;
-        }
 
+        if (!storage) return false;
         storage.construct(rb_detail::Type<Callable>{}, std::forward<CArgs>(args)...);
 
         uint32_t const next_offset = storage.getNextAddr() - m_Buffer;
@@ -276,6 +251,34 @@ public:
 
         return true;
     }
+
+    void clean_memory() noexcept {
+        auto output_offset = m_OutputFollowOffset;
+        auto clean_range = [&output_offset, stride_array = m_StrideArray,
+                            buffer_end_offset = m_BufferEndOffset](uint32_t index, uint32_t end) {
+            for (; index != end; ++index)
+                if (auto const stride = stride_array[index].load(std::memory_order::relaxed); stride) {
+                    output_offset += stride;
+                    if (output_offset >= buffer_end_offset) output_offset = 0;
+                    stride_array[index].store(0, std::memory_order::relaxed);
+                } else
+                    break;
+            return index;
+        };
+
+        if (m_StrideTailIndex == m_StrideHeadIndex) return;
+        else if (m_StrideTailIndex > m_StrideHeadIndex) {
+            m_StrideTailIndex = clean_range(m_StrideTailIndex, m_StrideArraySize);
+            m_OutputFollowOffset = output_offset;
+            if (m_StrideTailIndex != m_StrideArraySize) return;
+            else
+                m_StrideTailIndex = 0;
+        }
+
+        m_StrideTailIndex = clean_range(m_StrideTailIndex, m_StrideHeadIndex);
+        m_OutputFollowOffset = output_offset;
+    }
+
 
 private:
     template<typename T, size_t alignment = alignof(T)>
@@ -332,33 +335,6 @@ private:
             return nullptr;
     }
 
-    void cleanMemory() noexcept {
-        auto output_offset = m_OutputFollowOffset;
-        auto clean_range = [&output_offset, stride_array = m_StrideArray,
-                            buffer_end_offset = m_BufferEndOffset](uint32_t index, uint32_t end) {
-            for (; index != end; ++index)
-                if (auto const stride = stride_array[index].load(std::memory_order::relaxed); stride) {
-                    output_offset += stride;
-                    if (output_offset >= buffer_end_offset) output_offset = 0;
-                    stride_array[index].store(0, std::memory_order::relaxed);
-                } else
-                    break;
-            return index;
-        };
-
-        if (m_StrideTailIndex == m_StrideHeadIndex) return;
-        else if (m_StrideTailIndex > m_StrideHeadIndex) {
-            m_StrideTailIndex = clean_range(m_StrideTailIndex, m_StrideArraySize);
-            m_OutputFollowOffset = output_offset;
-            if (m_StrideTailIndex != m_StrideArraySize) return;
-            else
-                m_StrideTailIndex = 0;
-        }
-
-        m_StrideTailIndex = clean_range(m_StrideTailIndex, m_StrideHeadIndex);
-        m_OutputFollowOffset = output_offset;
-    }
-
     void resetStrideArray() noexcept {
         for (uint32_t i = 0; i != m_StrideArraySize; ++i) m_StrideArray[i].store(0, std::memory_order::relaxed);
     }
@@ -406,8 +382,6 @@ private:
     uint32_t m_OutputFollowOffset{};
     uint32_t m_StrideHeadIndex{};
     uint32_t m_StrideTailIndex{};
-
-    [[no_unique_address]] std::conditional_t<isWriteProtected, std::atomic_flag, rb_detail::Empty> m_WriteFlag{};
 
     mutable std::atomic<rb_detail::TaggedUint32> m_OutputReadOffset{};
 

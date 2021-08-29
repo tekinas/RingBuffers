@@ -6,13 +6,15 @@
 
 #include <fmt/format.h>
 
+#include <mutex>
 #include <thread>
+#include <utility>
 
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, true, true, false>;
-using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, true, false>;
+using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig>;
+using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig>;
 using FunctionQueueType = FunctionQueueMCSP;
 
 template<typename FunctionQueueType>
@@ -46,9 +48,11 @@ void reader(FunctionQueue &fq, size_t seed, uint16_t t, std::vector<size_t> &res
     uint32_t func{0};
 
     if constexpr (std::same_as<FunctionQueue, FunctionQueueSCSP>) {
-        while (fq.reserve()) {
-            auto const res = fq.call_and_pop(seed);
-            res_vec.push_back(res);
+        static util::SpinLock read_lock;
+        while (true) {
+            std::scoped_lock lock{read_lock};
+            if (fq.empty()) break;
+            res_vec.push_back(fq.call_and_pop(seed));
             ++func;
         }
     } else if (std::same_as<FunctionQueue, FunctionQueueMCSP>) {
@@ -67,19 +71,19 @@ void reader(FunctionQueue &fq, size_t seed, uint16_t t, std::vector<size_t> &res
 }
 
 int main(int argc, char **argv) {
-    if (argc == 1) { fmt::print("usage : ./fq_test_mr_mw <buffer_size> <seed> <writer_threads> <reader_threads>\n"); }
+    if (argc == 1) { fmt::print("usage : ./fq_test_mr_mw <writer_threads> <reader_threads> <seed>\n"); }
 
-    size_t const functionQueueBufferSize = [&] { return (argc >= 2) ? atof(argv[1]) : 1024 + 150; }() * 1024 * 1024;
+    size_t const functionQueueBufferSize = (1024 + 150) * 1024 * 1024;
     fmt::print("buffer size : {}\n", functionQueueBufferSize);
 
-    size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : std::random_device{}(); }();
-    fmt::print("seed : {}\n", seed);
-
-    size_t const numWriterThreads = [&] { return (argc >= 4) ? atol(argv[3]) : std::thread::hardware_concurrency(); }();
+    size_t const numWriterThreads = [&] { return (argc >= 2) ? atol(argv[1]) : std::thread::hardware_concurrency(); }();
     fmt::print("writer threads : {}\n", numWriterThreads);
 
-    size_t const numReaderThreads = [&] { return (argc >= 5) ? atol(argv[4]) : std::thread::hardware_concurrency(); }();
-    fmt::print("reader threads : {}\n\n", numReaderThreads);
+    size_t const numReaderThreads = [&] { return (argc >= 3) ? atol(argv[2]) : std::thread::hardware_concurrency(); }();
+    fmt::print("reader threads : {}\n", numReaderThreads);
+
+    size_t const seed = [&] { return (argc >= 4) ? atol(argv[3]) : std::random_device{}(); }();
+    fmt::print("seed : {}\n\n", seed);
 
     FunctionQueueData<FunctionQueueType> fq_data{functionQueueBufferSize};
 
@@ -88,16 +92,19 @@ int main(int argc, char **argv) {
         std::vector<std::jthread> writer_threads;
         for (auto t = numWriterThreads; t--;) {
             writer_threads.emplace_back([=, &fq_data] {
+                static util::SpinLock write_lock;
                 auto func = 3'100'000;
                 CallbackGenerator callbackGenerator{seed};
                 while (func) {
                     callbackGenerator.addCallback(util::overload(
                             [&]<typename T>(T &&t) {
-                                while (!fq_data.functionQueue.push(std::forward<T>(t))) { std::this_thread::yield(); }
+                                std::scoped_lock lock{write_lock};
+                                fq_data.functionQueue.push(std::forward<T>(t));
                                 --func;
                             },
                             [&]<auto fp>() {
-                                while (!fq_data.functionQueue.push<fp>()) { std::this_thread::yield(); }
+                                std::scoped_lock lock{write_lock};
+                                fq_data.functionQueue.push<fp>();
                                 --func;
                             }));
                 }

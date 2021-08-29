@@ -4,6 +4,7 @@
 #include <atomic>
 #include <concepts>
 #include <condition_variable>
+#include <memory>
 #include <memory_resource>
 #include <random>
 #include <span>
@@ -68,62 +69,55 @@ namespace util {
     private:
         RNG_Type rng;
     };
+}// namespace util
 
+
+namespace util {
     template<typename T>
     class pmr_deleter {
-    private:
-        std::pmr::memory_resource *memoryResource;
-
     public:
-        pmr_deleter() noexcept : memoryResource{nullptr} {}
-
-        /*explicit*/ pmr_deleter(std::pmr::memory_resource *memoryResource) noexcept : memoryResource{memoryResource} {}
+        pmr_deleter(std::pmr::memory_resource *memoryResource) noexcept : memoryResource{memoryResource} {}
 
         void operator()(T *const ptr) const noexcept {
-            ptr->~T();
+            if (ptr) std::destroy_at(ptr);
             memoryResource->deallocate(ptr, sizeof(T), alignof(T));
         }
+
+    private:
+        std::pmr::memory_resource *memoryResource;
     };
 
     template<typename T>
     class pmr_deleter<T[]> {
-    private:
-        std::pmr::memory_resource *memoryResource;
-        size_t size;
-
     public:
-        pmr_deleter() noexcept : memoryResource{nullptr}, size{0} {}
-
         pmr_deleter(std::pmr::memory_resource *memoryResource, size_t size) noexcept
             : memoryResource{memoryResource}, size{size} {}
 
-        [[nodiscard]] size_t getSize() const noexcept { return size; }
+        size_t getSize() const noexcept { return size; }
 
-        [[nodiscard]] std::pmr::memory_resource *getResource() const noexcept { return memoryResource; }
+        std::pmr::memory_resource *getResource() const noexcept { return memoryResource; }
 
         void operator()(T *const ptr) const noexcept {
-            std::destroy_n(ptr, size);
-
+            if (ptr) std::destroy_n(ptr, size);
             memoryResource->deallocate(ptr, size * sizeof(T), alignof(T));
         }
+
+    private:
+        std::pmr::memory_resource *memoryResource;
+        size_t size;
     };
 
-}// namespace util
-
-namespace std::pmr {
     template<typename T>
-    using unique_ptr = std::unique_ptr<T, util::pmr_deleter<T>>;
-}
+    using pmr_unique_ptr = std::unique_ptr<T, pmr_deleter<T>>;
 
-namespace util {
     template<typename T>
     struct UniquePointerType {
-        using single_object = std::pmr::unique_ptr<T>;
+        using single_object = pmr_unique_ptr<T>;
     };
 
     template<typename T>
     struct UniquePointerType<T[]> {
-        using array = std::pmr::unique_ptr<T[]>;
+        using array = pmr_unique_ptr<T[]>;
     };
 
     template<typename T, size_t Bound>
@@ -132,31 +126,34 @@ namespace util {
     };
 
     template<typename T, typename... ArgTypes>
-    inline typename UniquePointerType<T>::single_object make_unique(std::pmr::memory_resource *memoryResource,
-                                                                    ArgTypes &&...args) noexcept {
+    typename UniquePointerType<T>::single_object make_unique(std::pmr::memory_resource *memoryResource,
+                                                             ArgTypes &&...args) noexcept {
         std::pmr::polymorphic_allocator<T> alloc{memoryResource};
-        auto ptr = alloc.allocate(1);
-        alloc.construct(ptr, std::forward<ArgTypes>(args)...);
+        auto const ptr = alloc.allocate(1);
 
-        return std::pmr::unique_ptr<T>{ptr, pmr_deleter<T>{memoryResource}};
+        if (!ptr) return pmr_unique_ptr<T>{nullptr, pmr_deleter<T>{memoryResource}};
+
+        alloc.construct(ptr, std::forward<ArgTypes>(args)...);
+        return pmr_unique_ptr<T>{ptr, pmr_deleter<T>{memoryResource}};
     }
 
     template<typename T>
-    inline typename UniquePointerType<T>::array make_unique(std::pmr::memory_resource *memoryResource,
-                                                            size_t const size) noexcept {
+    typename UniquePointerType<T>::array make_unique(std::pmr::memory_resource *memoryResource,
+                                                     size_t const size) noexcept {
         using type = std::remove_extent_t<T>;
 
         std::pmr::polymorphic_allocator<type> alloc{memoryResource};
         auto const ptr = alloc.allocate(size);
 
-        for (size_t i = 0; i != size; ++i) { alloc.construct(ptr + i); }
+        if (!ptr) return pmr_unique_ptr<T>{nullptr, pmr_deleter<T>{memoryResource, size}};
 
-        return std::pmr::unique_ptr<T>{ptr, pmr_deleter<T>{memoryResource, size}};
+        for (size_t i = 0; i != size; ++i) alloc.construct(ptr + i);
+        return pmr_unique_ptr<T>{ptr, pmr_deleter<T>{memoryResource, size}};
     }
 
     template<typename T>
-    inline typename UniquePointerType<T>::invalid_type make_unique(std::pmr::memory_resource *memoryResource,
-                                                                   size_t size) = delete;
+    typename UniquePointerType<T>::invalid_type make_unique(std::pmr::memory_resource *memoryResource,
+                                                            size_t size) = delete;
 }// namespace util
 
 namespace util {
@@ -168,7 +165,7 @@ namespace util {
 
         explicit Timer(std::string_view str) noexcept : name{str}, start{clock::now()} {}
 
-        ~Timer() noexcept {
+        ~Timer() {
             fmt::print("{} : {} seconds\n", name,
                        std::chrono::duration_cast<print_duration_t>(clock::now() - start).count());
         }
@@ -191,6 +188,28 @@ namespace util {
 
     private:
         std::atomic_flag m_StartFlag{};
+    };
+}// namespace util
+
+namespace util {
+    class SpinLock {
+    public:
+        SpinLock() = default;
+
+        bool try_lock() noexcept {
+            if (lock_flag.test(std::memory_order::relaxed)) return false;
+            else
+                return !lock_flag.test_and_set(std::memory_order::acquire);
+        }
+
+        void lock() noexcept {
+            while (lock_flag.test_and_set(std::memory_order::acquire)) std::this_thread::yield();
+        }
+
+        void unlock() noexcept { lock_flag.clear(std::memory_order::release); }
+
+    private:
+        std::atomic_flag lock_flag{};
     };
 }// namespace util
 

@@ -54,8 +54,8 @@ private:
 };
 
 using BoostQueue = boost::lockfree::queue<Obj, boost::lockfree::fixed_sized<true>>;
-using ObjectQueue = ObjectQueue_MCSP<Obj, false>;
-using FunctionQueue = FunctionQueue_MCSP<uint64_t(Obj::RNG &), false, false>;
+using ObjectQueue = ObjectQueue_MCSP<Obj>;
+using FunctionQueue = FunctionQueue_MCSP<uint64_t(Obj::RNG &), false, alignof(Obj) + sizeof(Obj)>;
 using BufferQueue = BufferQueue_MCSP<false, alignof(Obj)>;
 
 template<typename ObjectQueueType>
@@ -78,7 +78,6 @@ void test(ObjectQueueType &objectQueue, uint16_t threads, uint32_t objects, std:
 
                     {
                         Timer timer{"read time "};
-
 
                         if constexpr (std::same_as<ObjectQueueType, BoostQueue>)
                             while (true) {
@@ -111,7 +110,10 @@ void test(ObjectQueueType &objectQueue, uint16_t threads, uint32_t objects, std:
         auto o = objects;
         while (o) {
             Obj obj{rng};
-            while (!objectQueue.push(obj)) std::this_thread::yield();
+            while (!objectQueue.push(obj)) {
+                std::this_thread::yield();
+                if constexpr (std::same_as<ObjectQueueType, ObjectQueue>) objectQueue.clean_memory();
+            }
             --o;
         }
 
@@ -168,7 +170,10 @@ void test(FunctionQueue &functionQueue, uint16_t threads, uint32_t objects, std:
         auto o = objects;
         while (o) {
             Obj obj{rng};
-            while (!functionQueue.push(obj)) std::this_thread::yield();
+            while (!functionQueue.push(obj)) {
+                std::this_thread::yield();
+                functionQueue.clean_memory();
+            }
             --o;
         }
 

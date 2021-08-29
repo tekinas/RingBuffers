@@ -57,11 +57,10 @@ private:
 
 using BoostQueueSCSP = boost::lockfree::spsc_queue<Obj, boost::lockfree::fixed_sized<true>>;
 using BoostQueueMCMP = boost::lockfree::queue<Obj, boost::lockfree::fixed_sized<true>>;
-using ObjectQueueSCSP = ObjectQueue_SCSP<Obj, false, false>;
-using ObjectQueueMCSP = ObjectQueue_MCSP<Obj, false>;
-using FunctionQueueSCSP =
-        FunctionQueue_SCSP<size_t(Obj::RNG &, size_t), false, false, false, alignof(Obj) + sizeof(Obj)>;
-using FunctionQueueMCSP = FunctionQueue_MCSP<size_t(Obj::RNG &, size_t), false, false, alignof(Obj) + sizeof(Obj)>;
+using ObjectQueueSCSP = ObjectQueue_SCSP<Obj>;
+using ObjectQueueMCSP = ObjectQueue_MCSP<Obj>;
+using FunctionQueueSCSP = FunctionQueue_SCSP<size_t(Obj::RNG &, size_t), false, alignof(Obj) + sizeof(Obj)>;
+using FunctionQueueMCSP = FunctionQueue_MCSP<size_t(Obj::RNG &, size_t), false, alignof(Obj) + sizeof(Obj)>;
 using BufferQueueSCSP = BufferQueue_SCSP<false, false, alignof(Obj)>;
 using BufferQueueMCSP = BufferQueue_MCSP<false, alignof(Obj)>;
 
@@ -79,7 +78,7 @@ void test(ObjectQueueType &objectQueue, uint32_t objects, size_t seed) noexcept 
         while (obj--) {
             Obj o{rng};
             while (!objectQueue.push(o))
-                ;
+                if constexpr (requires(ObjectQueueType & oq) { oq.clean_memory(); }) objectQueue.clean_memory();
         }
     }};
 
@@ -92,7 +91,7 @@ void test(ObjectQueueType &objectQueue, uint32_t objects, size_t seed) noexcept 
             auto obj = objects;
             while (obj) {
                 if constexpr (std::same_as<ObjectQueueType, ObjectQueueSCSP>) {
-                    while (!objectQueue.reserve()) std::this_thread::yield();
+                    while (objectQueue.empty()) std::this_thread::yield();
                     obj -= objectQueue.consume_all([&](Obj const &obj) noexcept { seed = obj(rng, seed); });
                 } else if constexpr (std::same_as<ObjectQueueType, ObjectQueueMCSP>) {
                     auto const consumed =
@@ -101,7 +100,7 @@ void test(ObjectQueueType &objectQueue, uint32_t objects, size_t seed) noexcept 
                     else
                         std::this_thread::yield();
                 } else if constexpr (std::same_as<ObjectQueueType, FunctionQueueSCSP>) {
-                    while (!objectQueue.reserve()) std::this_thread::yield();
+                    while (objectQueue.empty()) std::this_thread::yield();
                     seed = objectQueue.call_and_pop(rng, seed);
                     --obj;
                 } else if constexpr (std::same_as<ObjectQueueType, FunctionQueueMCSP>) {
