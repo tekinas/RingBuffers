@@ -4,10 +4,9 @@ threads = dependency('threads')
 fmt = dependency('fmt', method : 'cmake', modules : ['fmt::fmt-header-only'])
 boost = dependency('boost')
 folly = dependency('folly', method : 'cmake', modules : ['Folly::folly', 'Folly::folly_deps'])
-dl = declare_dependency(link_args : '-ldl')
 ring_buffers = declare_dependency(include_directories : 'src/include')
 
-project_deps = declare_dependency(dependencies : [threads, fmt, folly, dl, boost, ring_buffers]) 
+project_deps = declare_dependency(dependencies : [threads, fmt, folly, boost, ring_buffers]) 
 
 executable('fq_test_1r_1w', 'src/tests/fq_test_1r_1w.cpp' , dependencies : project_deps)
 executable('fq_test_mr_mw', 'src/tests/fq_test_mr_mw.cpp' , dependencies : project_deps)
