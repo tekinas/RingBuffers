@@ -1,3 +1,4 @@
+#include "RingBuffers/detail/rb_detail.h"
 #include "util.h"
 #include <RingBuffers/BufferQueue_MCSP.h>
 #include <RingBuffers/BufferQueue_SCSP.h>
@@ -91,28 +92,29 @@ void test(ObjectQueueType &objectQueue, uint32_t objects, size_t seed) noexcept 
             auto obj = objects;
             while (obj) {
                 if constexpr (std::same_as<ObjectQueueType, ObjectQueueSCSP>) {
-                    while (objectQueue.empty()) std::this_thread::yield();
-                    obj -= objectQueue.consume_all([&](Obj const &obj) noexcept { seed = obj(rng, seed); });
+                    if (!objectQueue.empty())
+                        obj -= objectQueue.consume_all([&](Obj const &obj) noexcept { seed = obj(rng, seed); });
                 } else if constexpr (std::same_as<ObjectQueueType, ObjectQueueMCSP>) {
-                    auto const consumed =
-                            objectQueue.consume_all([&](Obj const &obj) noexcept { seed = obj(rng, seed); });
+                    auto const reader = objectQueue.getReader(0);
+                    auto const consumed = reader.consume_all([&](Obj const &obj) noexcept { seed = obj(rng, seed); });
                     if (consumed) obj -= consumed;
-                    else
-                        std::this_thread::yield();
                 } else if constexpr (std::same_as<ObjectQueueType, FunctionQueueSCSP>) {
-                    while (objectQueue.empty()) std::this_thread::yield();
-                    seed = objectQueue.call_and_pop(rng, seed);
-                    --obj;
-                } else if constexpr (std::same_as<ObjectQueueType, FunctionQueueMCSP>) {
-                    if (auto handle = objectQueue.get_function_handle()) {
-                        seed = handle.call_and_pop(rng, seed);
+                    while (!objectQueue.empty()) {
+                        seed = objectQueue.call_and_pop(rng, seed);
                         --obj;
-                    } else
-                        std::this_thread::yield();
+                    }
+                } else if constexpr (std::same_as<ObjectQueueType, FunctionQueueMCSP>) {
+                    while (true)
+                        if (auto handle = objectQueue.get_function_handle()) {
+                            seed = handle.call_and_pop(rng, seed);
+                            --obj;
+                        } else
+                            break;
                 } else {
-                    while (objectQueue.empty()) std::this_thread::yield();
-                    obj -= objectQueue.consume_all([&](Obj const &obj) { seed = obj(rng, seed); });
+                    if (!objectQueue.empty())
+                        obj -= objectQueue.consume_all([&](Obj const &obj) noexcept { seed = obj(rng, seed); });
                 }
+                std::this_thread::yield();
             }
         }
 
@@ -174,7 +176,7 @@ void test(BufferQueue &bufferQueue, uint32_t objects, size_t seed) noexcept {
 }
 
 int main(int argc, char **argv) {
-    if (argc == 1) fmt::print("usage : ./oq_test_1r_1w <capacity> <seed> <objects>\n");
+    if (argc == 1) fmt::print("usage : ./oq_test_1r_1w <seed> <objects>\n");
 
     constexpr uint32_t capacity = 65'534;
 
@@ -206,8 +208,7 @@ int main(int argc, char **argv) {
 
     {
         fmt::print("\nobject queue mcsp test ...\n");
-        auto const clean_array = std::make_unique<std::atomic<bool>[]>(capacity);
-        ObjectQueueMCSP objectQueueMCSP{buffer.get(), clean_array.get(), static_cast<uint32_t>(capacity)};
+        ObjectQueueMCSP objectQueueMCSP{capacity, 1};
         test(objectQueueMCSP, objects, seed);
     }
 

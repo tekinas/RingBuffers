@@ -54,7 +54,7 @@ private:
 };
 
 using BoostQueue = boost::lockfree::queue<Obj, boost::lockfree::fixed_sized<true>>;
-using ObjectQueue = ObjectQueue_MCSP<Obj>;
+using ObjectQueue = ObjectQueue_MCSP<Obj, 20>;
 using FunctionQueue = FunctionQueue_MCSP<uint64_t(Obj::RNG &), false, alignof(Obj) + sizeof(Obj)>;
 using BufferQueue = BufferQueue_MCSP<false, alignof(Obj)>;
 
@@ -88,13 +88,11 @@ void test(ObjectQueueType &objectQueue, uint16_t threads, uint32_t objects, std:
                                     std::this_thread::yield();
                             }
                         if constexpr (std::same_as<ObjectQueueType, ObjectQueue>)
-                            while (true) {
-                                if (auto ptr = objectQueue.consume()) {
-                                    local_result.push_back((*ptr)(rng));
-                                } else if (is_done.load(std::memory_order_relaxed))
-                                    break;
-                                else
-                                    std::this_thread::yield();
+                            while (!is_done.load(std::memory_order_relaxed)) {
+                                auto const reader = objectQueue.getReader(i);
+                                reader.consume_all(rb::check_once,
+                                                   [&](Obj &obj) noexcept { local_result.push_back(obj(rng)); });
+                                std::this_thread::yield();
                             }
                     }
 
@@ -252,37 +250,35 @@ void test(BufferQueue &bufferQueue, uint16_t threads, uint32_t objects, std::siz
 }
 
 int main(int argc, char **argv) {
-    constexpr uint32_t object_count = 65'534;
+    constexpr uint32_t capacity = 65'534;
 
     size_t const objects = [&] { return (argc >= 2) ? atol(argv[1]) : 10'000'000; }();
     fmt::print("objects to process : {}\n", objects);
 
-    size_t const num_threads = [&] { return (argc >= 3) ? atol(argv[2]) : std::thread::hardware_concurrency(); }();
+    uint16_t const num_threads = [&] { return (argc >= 3) ? atol(argv[2]) : std::thread::hardware_concurrency(); }();
     fmt::print("reader threads : {}\n", num_threads);
 
     size_t const seed = [&] { return (argc >= 4) ? atol(argv[3]) : std::random_device{}(); }();
     fmt::print("seed : {}\n", seed);
 
     auto buffer = std::make_unique<
-            std::aligned_storage_t<sizeof(Obj), std::max(FunctionQueue::BUFFER_ALIGNMENT, alignof(Obj))>[]>(
-            object_count);
+            std::aligned_storage_t<sizeof(Obj), std::max(FunctionQueue::BUFFER_ALIGNMENT, alignof(Obj))>[]>(capacity);
 
     {
         fmt::print("\nBoost Queue test ....\n");
-        BoostQueue boostqueue{object_count};
+        BoostQueue boostqueue{capacity};
         test(boostqueue, num_threads, objects, seed);
     }
 
     {
         fmt::print("\nObject Queue test ....\n");
-        auto const clean_array = std::make_unique<std::atomic<bool>[]>(object_count);
-        ObjectQueue objectQueue{reinterpret_cast<Obj *>(buffer.get()), clean_array.get(), object_count};
+        ObjectQueue objectQueue{capacity, num_threads};
         test(objectQueue, num_threads, objects, seed);
     }
 
     {
         fmt::print("\nFunction Queue test ....\n");
-        constexpr size_t buffer_size = object_count * sizeof(Obj);
+        constexpr size_t buffer_size = capacity * sizeof(Obj);
         auto cleanOffsetArray = std::make_unique<std::atomic<uint16_t>[]>(FunctionQueue::clean_array_size(buffer_size));
         FunctionQueue functionQueue{std::bit_cast<std::byte *>(buffer.get()), buffer_size, cleanOffsetArray.get()};
         test(functionQueue, num_threads, objects, seed);
@@ -290,7 +286,7 @@ int main(int argc, char **argv) {
 
     {
         fmt::print("\nBuffer Queue test ....\n");
-        BufferQueue bufferQueue{std::bit_cast<std::byte *>(buffer.get()), object_count * sizeof(Obj)};
+        BufferQueue bufferQueue{std::bit_cast<std::byte *>(buffer.get()), capacity * sizeof(Obj)};
         test(bufferQueue, num_threads, objects, seed);
     }
 }

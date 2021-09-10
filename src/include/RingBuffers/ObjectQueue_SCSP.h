@@ -1,7 +1,7 @@
 #ifndef OBJECTQUEUE_SCSP
 #define OBJECTQUEUE_SCSP
 
-#include "rb_detail.h"
+#include "detail/rb_detail.h"
 #include <atomic>
 #include <cassert>
 #include <cstdint>
@@ -95,7 +95,7 @@ public:
     decltype(auto) consume(Functor &&functor) const noexcept {
         auto const output_index = m_OutputIndex.load(std::memory_order::relaxed);
 
-        rb_detail::ScopeGaurd const destroy_n_set_next_index{[this, output_index] {
+        rb::detail::ScopeGaurd const destroy_n_set_next_index{[this, output_index] {
             destroy(output_index);
 
             auto const nextIndex = output_index == m_LastElementIndex ? 0 : (output_index + 1);
@@ -110,7 +110,7 @@ public:
     const noexcept {
         auto const input_index = m_InputIndex.load(std::memory_order::acquire);
 
-        rb_detail::ScopeGaurd const set_next_index{
+        rb::detail::ScopeGaurd const set_next_index{
                 [this, input_index] { m_OutputIndex.store(input_index, std::memory_order::release); }};
 
         auto consume_and_destroy = [this, &functor](uint32_t index, uint32_t end) {
@@ -133,7 +133,7 @@ public:
         }
     }
 
-    bool push(ObjectType &obj) noexcept { return emplace(obj); }
+    bool push(ObjectType const &obj) noexcept { return emplace(obj); }
 
     bool push(ObjectType &&obj) noexcept { return emplace(std::move(obj)); }
 

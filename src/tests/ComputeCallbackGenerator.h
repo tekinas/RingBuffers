@@ -6,6 +6,8 @@
 #include <boost/container_hash/hash_fwd.hpp>
 #include <boost/random/mersenne_twister.hpp>
 
+#include <RingBuffers/FunctionWrapper.h>
+
 using util::Random;
 using RNG = Random<boost::random::mt19937_64>;
 
@@ -112,28 +114,13 @@ public:
                 });
             } break;
             case 2:
-                if constexpr (requires(T & push_back) {
-                                  { push_back.template operator()<compute_1>() } -> std::same_as<void>;
-                              })
-                    push_back.template operator()<compute_1>();
-                else
-                    push_back(compute_1);
+                push_back(rb::function<compute_1>);
                 break;
             case 3:
-                if constexpr (requires(T & push_back) {
-                                  { push_back.template operator()<compute_2>() } -> std::same_as<void>;
-                              })
-                    push_back.template operator()<compute_2>();
-                else
-                    push_back(compute_2);
+                push_back(rb::function<compute_2>);
                 break;
             case 4:
-                if constexpr (requires(T & push_back) {
-                                  { push_back.template operator()<compute_3>() } -> std::same_as<void>;
-                              })
-                    push_back.template operator()<compute_3>();
-                else
-                    push_back(compute_3);
+                push_back(rb::function<compute_3>);
                 break;
             case 5: {
                 push_back(ComputeFunctor<10>{random});

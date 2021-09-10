@@ -5,14 +5,19 @@
 #include <cstdint>
 #include <utility>
 
-namespace rb_detail {
+namespace rb {
+    class check_once_tag {};
+    constexpr auto check_once = check_once_tag{};
+};// namespace rb
+
+namespace rb::detail {
     template<typename Function>
     class ScopeGaurd {
     public:
         template<typename F>
         ScopeGaurd(F &&func) : m_Func{std::forward<F>(func)} {}
 
-        void commit() noexcept { m_Commit = true; }
+        void release() noexcept { m_Commit = true; }
 
         ~ScopeGaurd() {
             if (!m_Commit) m_Func();
@@ -58,6 +63,6 @@ namespace rb_detail {
         uint32_t tag{};
     };
 
-}// namespace rb_detail
+}// namespace rb::detail
 
 #endif

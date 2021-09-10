@@ -13,8 +13,8 @@
 using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
-using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig>;
-using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig>;
+using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, true>;
+using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, true>;
 using FunctionQueueType = FunctionQueueMCSP;
 
 template<typename FunctionQueueType>
@@ -56,25 +56,26 @@ void reader(FunctionQueue &fq, size_t seed, uint16_t t, std::vector<size_t> &res
             ++func;
         }
     } else if (std::same_as<FunctionQueue, FunctionQueueMCSP>) {
-        FunctionQueueMCSP::FunctionHandle handle;
-        while ((handle = fq.get_function_handle())) {
-            auto const res = handle.call_and_pop(seed);
-            res_vec.push_back(res);
-            ++func;
+        while (!fq.empty()) {
+            if (auto handle = fq.get_function_handle(rb::check_once)) {
+                auto const res = handle.call_and_pop(seed);
+                res_vec.push_back(res);
+                ++func;
+            } else
+                std::this_thread::yield();
         }
     }
 
     fmt::print("thread {} read {} functions\n", t, func);
 
-    std::lock_guard lock{res_vec_mut};
+    std::scoped_lock lock{res_vec_mut};
     result_vector.insert(result_vector.end(), res_vec.begin(), res_vec.end());
 }
 
 int main(int argc, char **argv) {
     if (argc == 1) { fmt::print("usage : ./fq_test_mr_mw <writer_threads> <reader_threads> <seed>\n"); }
 
-    size_t const functionQueueBufferSize = (1024 + 150) * 1024 * 1024;
-    fmt::print("buffer size : {}\n", functionQueueBufferSize);
+    constexpr size_t functionQueueBufferSize = (1024 + 150) * 1024 * 1024;
 
     size_t const numWriterThreads = [&] { return (argc >= 2) ? atol(argv[1]) : std::thread::hardware_concurrency(); }();
     fmt::print("writer threads : {}\n", numWriterThreads);
@@ -96,17 +97,11 @@ int main(int argc, char **argv) {
                 auto func = 3'100'000;
                 CallbackGenerator callbackGenerator{seed};
                 while (func) {
-                    callbackGenerator.addCallback(util::overload(
-                            [&]<typename T>(T &&t) {
-                                std::scoped_lock lock{write_lock};
-                                fq_data.functionQueue.push(std::forward<T>(t));
-                                --func;
-                            },
-                            [&]<auto fp>() {
-                                std::scoped_lock lock{write_lock};
-                                fq_data.functionQueue.push<fp>();
-                                --func;
-                            }));
+                    callbackGenerator.addCallback([&]<typename T>(T &&t) {
+                        std::scoped_lock lock{write_lock};
+                        fq_data.functionQueue.push(std::forward<T>(t));
+                        --func;
+                    });
                 }
 
                 fmt::print("writer thread {} joined\n", t);

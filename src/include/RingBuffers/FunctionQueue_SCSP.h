@@ -1,7 +1,7 @@
 #ifndef FUNCTIONQUEUE_SCSP
 #define FUNCTIONQUEUE_SCSP
 
-#include "rb_detail.h"
+#include "detail/rb_detail.h"
 #include <atomic>
 #include <bit>
 #include <cstddef>
@@ -47,12 +47,12 @@ private:
 
     private:
         template<typename Callable>
-        FunctionContext(rb_detail::Type<Callable>, uint16_t callable_offset, uint16_t stride) noexcept
+        FunctionContext(rb::detail::Type<Callable>, uint16_t callable_offset, uint16_t stride) noexcept
             : fp_offset{getFpOffset(&invokeAndDestroy<Callable>)}, destroyFp_offset{getFpOffset(&destroy<Callable>)},
               callable_offset{callable_offset}, stride{stride} {}
 
         uint32_t const fp_offset;
-        [[no_unique_address]] std::conditional_t<destroyNonInvoked, uint32_t const, rb_detail::Empty> destroyFp_offset;
+        [[no_unique_address]] std::conditional_t<destroyNonInvoked, uint32_t const, rb::detail::Empty> destroyFp_offset;
         uint16_t const callable_offset;
         uint16_t const stride;
 
@@ -68,11 +68,11 @@ private:
         std::byte *getNextAddr() const noexcept { return next_addr; }
 
         template<typename Callable, typename... CArgs>
-        void construct(rb_detail::Type<Callable>, CArgs &&...args) const noexcept {
+        void construct(rb::detail::Type<Callable>, CArgs &&...args) const noexcept {
             uint16_t const callable_offset = callable_ptr - fc_ptr;
             uint16_t const stride = next_addr - fc_ptr;
 
-            new (fc_ptr) FunctionContext{rb_detail::Type<Callable>{}, callable_offset, stride};
+            new (fc_ptr) FunctionContext{rb::detail::Type<Callable>{}, callable_offset, stride};
             new (callable_ptr) Callable{std::forward<CArgs>(args)...};
         }
 
@@ -134,23 +134,12 @@ public:
         auto const functionCxtPtr = std::bit_cast<FunctionContext *>(output_pos);
         auto const read_data = functionCxtPtr->getReadData();
 
-        rb_detail::ScopeGaurd const update_state{[&] {
+        rb::detail::ScopeGaurd const update_state{[&] {
             auto const next_addr = read_data.next_addr < m_BufferEnd ? read_data.next_addr : m_Buffer;
             m_OutputPos.store(next_addr, std::memory_order::release);
         }};
 
         return read_data.function(read_data.callable_ptr, std::forward<Args>(args)...);
-    }
-
-    template<auto invokable>
-    requires std::is_nothrow_invocable_r_v<R, decltype(invokable), Args...>
-    bool push() noexcept {
-        return push([](Args... args) noexcept {
-            if constexpr (std::is_function_v<std::remove_pointer_t<decltype(invokable)>>)
-                return invokable(std::forward<Args>(args)...);
-            else
-                return std::invoke(invokable, std::forward<Args>(args)...);
-        });
     }
 
     template<typename T>
@@ -169,7 +158,7 @@ public:
         auto const storage = getStorage<callable_align, callable_size>();
         if (!storage) return false;
 
-        storage.construct(rb_detail::Type<Callable>{}, std::forward<CArgs>(args)...);
+        storage.construct(rb::detail::Type<Callable>{}, std::forward<CArgs>(args)...);
         auto const next_addr = storage.getNextAddr() < m_BufferEnd ? storage.getNextAddr() : m_Buffer;
         m_InputPos.store(next_addr, std::memory_order::release);
 
@@ -185,7 +174,7 @@ private:
     template<typename Callable>
     static R invokeAndDestroy(void *data, Args... args) noexcept {
         auto const functor_ptr = static_cast<Callable *>(data);
-        rb_detail::ScopeGaurd const destroy_functor{[&] { std::destroy_at(functor_ptr); }};
+        rb::detail::ScopeGaurd const destroy_functor{[&] { std::destroy_at(functor_ptr); }};
 
         return std::invoke(*functor_ptr, std::forward<Args>(args)...);
     }
@@ -223,7 +212,7 @@ private:
         constexpr auto getAlignedStorage = Storage::template getAlignedStorage<obj_align, obj_size>;
         if (auto const storage = getAlignedStorage(input_pos);
             (storage.getNextAddr() < output_pos) ||
-            ((input_pos >= output_pos) && ((storage.getNextAddr() < buffer_end) || (output_pos - buffer_start))))
+            ((input_pos >= output_pos) && ((storage.getNextAddr() < buffer_end) || (output_pos != buffer_start))))
             return storage;
 
         return {};

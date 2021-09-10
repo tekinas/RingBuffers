@@ -13,12 +13,11 @@
 #include <fmt/format.h>
 
 using ComputeFunctionSig = size_t(size_t);
-using FunctionQueueNC = FunctionQueue<ComputeFunctionSig, false>;
+using FunctionQueueUnsync = FunctionQueue<ComputeFunctionSig, false>;
 using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, false>;
 using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, false>;
-using FunctionQueueType = FunctionQueueMCSP;
+using FunctionQueueType = FunctionQueueUnsync;
 
-using folly::Function;
 using util::Timer;
 
 size_t default_alloc{};
@@ -42,32 +41,31 @@ public:
           functionQueue{functionQueueBuffer.get(), buffer_size, cleanOffsetArray.get()} {}
 
     template<typename = void>
-    requires std::same_as<FunctionQueueType, FunctionQueueNC> || std::same_as<FunctionQueueType, FunctionQueueSCSP>
+    requires std::same_as<FunctionQueueType, FunctionQueueUnsync> || std::same_as<FunctionQueueType, FunctionQueueSCSP>
     FunctionQueueData(size_t buffer_size)
         : functionQueueBuffer{std::make_unique<std::byte[]>(buffer_size)}, functionQueue{functionQueueBuffer.get(),
                                                                                          buffer_size} {}
 };
 
 template<typename FunctionQueueType>
-requires std::same_as<FunctionQueueType, FunctionQueueNC> || std::same_as<FunctionQueueType, FunctionQueueSCSP> ||
+requires std::same_as<FunctionQueueType, FunctionQueueUnsync> || std::same_as<FunctionQueueType, FunctionQueueSCSP> ||
         std::same_as<FunctionQueueType, FunctionQueueMCSP>
 void test(FunctionQueueType &functionQueue) noexcept {
     size_t num = 0;
     {
         Timer timer{"function queue"};
-        if constexpr (std::same_as<FunctionQueueType, FunctionQueueNC> ||
+        if constexpr (std::same_as<FunctionQueueType, FunctionQueueUnsync> ||
                       std::same_as<FunctionQueueType, FunctionQueueSCSP>)
             while (!functionQueue.empty()) num = functionQueue.call_and_pop(num);
         else {
-            FunctionQueueMCSP::FunctionHandle handle;
-            while ((handle = functionQueue.get_function_handle_check_once())) num = handle.call_and_pop(num);
+            while (!functionQueue.empty()) num = functionQueue.get_function_handle(rb::check_once).call_and_pop(num);
         }
     }
 
     fmt::print("result : {}\n\n", num);
 }
 
-void test(std::vector<Function<ComputeFunctionSig>> &vectorComputeQueue) noexcept {
+void test(std::vector<folly::Function<ComputeFunctionSig>> &vectorComputeQueue) noexcept {
     size_t num = 0;
     {
         Timer timer{"std::vector<folly::Function>"};
@@ -96,7 +94,7 @@ int main(int argc, char **argv) {
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : std::random_device{}(); }();
     fmt::print("seed : {}\n", seed);
 
-    std::vector<Function<ComputeFunctionSig>> follyFunctionVector{};
+    std::vector<folly::Function<ComputeFunctionSig>> follyFunctionVector{};
     std::vector<std::function<ComputeFunctionSig>> stdFuncionVector{};
 
     CallbackGenerator callbackGenerator{seed};
@@ -110,9 +108,8 @@ int main(int argc, char **argv) {
         bool addFunction = true;
         while (addFunction) {
             ++functions;
-            callbackGenerator.addCallback(util::overload(
-                    [&]<typename T>(T &&t) { addFunction = fq_data.functionQueue.push(std::forward<T>(t)); },
-                    [&]<auto fp> { addFunction = fq_data.functionQueue.push<fp>(); }));
+            callbackGenerator.addCallback(
+                    [&]<typename T>(T &&t) { addFunction = fq_data.functionQueue.push(std::forward<T>(t)); });
         }
         --functions;
 
@@ -166,5 +163,5 @@ void *operator new(size_t bytes) {
     return malloc(bytes);
 }
 
-void operator delete(void *ptr, size_t) { free(ptr); }
-void operator delete(void *ptr) { free(ptr); }
+void operator delete(void *ptr, size_t) noexcept { free(ptr); }
+void operator delete(void *ptr) noexcept { free(ptr); }

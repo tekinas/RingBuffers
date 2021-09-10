@@ -1,7 +1,7 @@
 #ifndef FUNCTIONQUEUE_MCSP
 #define FUNCTIONQUEUE_MCSP
 
-#include "rb_detail.h"
+#include "detail/rb_detail.h"
 #include <atomic>
 #include <bit>
 #include <cstddef>
@@ -52,13 +52,13 @@ private:
 
     private:
         template<typename Callable>
-        FunctionContext(rb_detail::Type<Callable>, uint16_t callable_offset, uint16_t stride,
+        FunctionContext(rb::detail::Type<Callable>, uint16_t callable_offset, uint16_t stride,
                         uint32_t strideArrayIndex) noexcept
             : fp_offset{getFpOffset(&invokeAndDestroy<Callable>)}, destroyFp_offset{getFpOffset(&destroy<Callable>)},
               callable_offset{callable_offset}, stride{stride}, strideArrayIndex{strideArrayIndex} {}
 
         uint32_t const fp_offset;
-        [[no_unique_address]] std::conditional_t<destroyNonInvoked, uint32_t const, rb_detail::Empty> destroyFp_offset;
+        [[no_unique_address]] std::conditional_t<destroyNonInvoked, uint32_t const, rb::detail::Empty> destroyFp_offset;
         uint16_t const callable_offset;
         uint16_t const stride;
         uint32_t const strideArrayIndex;
@@ -75,11 +75,11 @@ private:
         std::byte *getNextAddr() const noexcept { return next_addr; }
 
         template<typename Callable, typename... CArgs>
-        void construct(rb_detail::Type<Callable>, CArgs &&...args) const noexcept {
+        void construct(rb::detail::Type<Callable>, CArgs &&...args) const noexcept {
             uint16_t const callable_offset = callable_ptr - fc_ptr;
             uint16_t const stride = next_addr - fc_ptr;
 
-            new (fc_ptr) FunctionContext{rb_detail::Type<Callable>{}, callable_offset, stride, strideArrayIndex};
+            new (fc_ptr) FunctionContext{rb::detail::Type<Callable>{}, callable_offset, stride, strideArrayIndex};
             new (callable_ptr) Callable{std::forward<CArgs>(args)...};
         }
 
@@ -128,7 +128,7 @@ public:
         operator bool() const noexcept { return functionCxtPtr; }
 
         R call_and_pop(Args... args) noexcept {
-            rb_detail::ScopeGaurd const free_function_cxt = {[&] {
+            rb::detail::ScopeGaurd const free_function_cxt = {[&] {
                 functionCxtPtr->free(strideArray);
                 functionCxtPtr = nullptr;
             }};
@@ -175,7 +175,7 @@ public:
     }
 
     ~FunctionQueue_MCSP() {
-        if constexpr (destroyNonInvoked) destroyAllFO();
+        if constexpr (destroyNonInvoked) destroyAllNonInvoked();
     }
 
     std::byte *buffer() const noexcept { return m_Buffer; }
@@ -183,11 +183,12 @@ public:
     size_t buffer_size() const noexcept { return m_BufferEndOffset + sentinel_region_size; }
 
     bool empty() const noexcept {
-        return m_InputOffset.load(std::memory_order::acquire) == m_OutputReadOffset.load(std::memory_order::relaxed);
+        return m_InputOffset.load(std::memory_order::acquire).getValue() ==
+               m_OutputReadOffset.load(std::memory_order::relaxed).getValue();
     }
 
     void clear() noexcept {
-        if constexpr (destroyNonInvoked) destroyAllFO();
+        if constexpr (destroyNonInvoked) destroyAllNonInvoked();
 
         m_InputOffset.store({}, std::memory_order::relaxed);
         m_StrideHeadIndex = 0;
@@ -199,19 +200,8 @@ public:
 
     FunctionHandle get_function_handle() const noexcept { return {getFunctionContext(), m_StrideArray}; }
 
-    FunctionHandle get_function_handle_check_once() const noexcept {
-        return {getFunctionContextCheckOnce(), m_StrideArray};
-    }
-
-    template<auto invokable>
-    requires std::is_nothrow_invocable_r_v<R, decltype(invokable), Args...>
-    bool push() noexcept {
-        return push([](Args... args) noexcept {
-            if constexpr (std::is_function_v<std::remove_pointer_t<decltype(invokable)>>)
-                return invokable(std::forward<Args>(args)...);
-            else
-                return std::invoke(invokable, std::forward<Args>(args)...);
-        });
+    FunctionHandle get_function_handle(rb::check_once_tag) const noexcept {
+        return {getFunctionContext(rb::check_once), m_StrideArray};
     }
 
     template<typename T>
@@ -231,7 +221,7 @@ public:
         auto const storage = getStorage<callable_align, callable_size>(input_offset.getValue());
 
         if (!storage) return false;
-        storage.construct(rb_detail::Type<Callable>{}, std::forward<CArgs>(args)...);
+        storage.construct(rb::detail::Type<Callable>{}, std::forward<CArgs>(args)...);
 
         uint32_t const next_offset = storage.getNextAddr() - m_Buffer;
         auto const nextInputOffset = input_offset.getIncrTagged(next_offset < m_BufferEndOffset ? next_offset : 0);
@@ -289,7 +279,7 @@ private:
     template<typename Callable>
     static R invokeAndDestroy(void *data, Args... args) noexcept {
         auto const functor_ptr = static_cast<Callable *>(data);
-        rb_detail::ScopeGaurd const destroy_functor{[&] { std::destroy_at(functor_ptr); }};
+        rb::detail::ScopeGaurd const destroy_functor{[&] { std::destroy_at(functor_ptr); }};
 
         return std::invoke(*functor_ptr, std::forward<Args>(args)...);
     }
@@ -301,7 +291,7 @@ private:
 
     FunctionContext *getFunctionContext() const noexcept {
         FunctionContext *fcxt_ptr;
-        rb_detail::TaggedUint32 next_output_offset;
+        rb::detail::TaggedUint32 next_output_offset;
 
         auto const input_offset = m_InputOffset.load(std::memory_order::acquire);
         auto output_offset = m_OutputReadOffset.load(std::memory_order::relaxed);
@@ -317,7 +307,7 @@ private:
         return fcxt_ptr;
     }
 
-    FunctionContext *getFunctionContextCheckOnce() const noexcept {
+    FunctionContext *getFunctionContext(rb::check_once_tag) const noexcept {
         auto output_offset = m_OutputReadOffset.load(std::memory_order::relaxed);
         auto const input_offset = m_InputOffset.load(std::memory_order::acquire);
 
@@ -339,9 +329,23 @@ private:
         for (uint32_t i = 0; i != m_StrideArraySize; ++i) m_StrideArray[i].store(0, std::memory_order::relaxed);
     }
 
-    void destroyAllFO() {
-        FunctionContext *fcxt_ptr;
-        while ((fcxt_ptr = getFunctionContextCheckOnce())) fcxt_ptr->destroyFO();
+    void destroyAllNonInvoked() {
+        auto destroyAndGetNextPos = [](auto pos) {
+            auto const functionCxtPtr = std::bit_cast<FunctionContext *>(pos);
+            return functionCxtPtr->destroyFO();
+        };
+
+        auto output_pos = m_Buffer + m_OutputReadOffset.load(std::memory_order::relaxed).getValue();
+        auto const buffer_end = m_Buffer + m_BufferEndOffset;
+        auto const input_pos = m_Buffer + m_InputOffset.load(std::memory_order::acquire).getValue();
+
+        if (input_pos == output_pos) return;
+        else if (output_pos > input_pos) {
+            while (output_pos < buffer_end) output_pos = destroyAndGetNextPos(output_pos);
+            output_pos = m_Buffer;
+        }
+
+        while (output_pos != input_pos) output_pos = destroyAndGetNextPos(output_pos);
     }
 
     template<size_t obj_align, size_t obj_size>
@@ -355,7 +359,7 @@ private:
         constexpr auto getAlignedStorage = Storage::template getAlignedStorage<obj_align, obj_size>;
         if (auto const storage = getAlignedStorage(input_pos, strideArrayIndex);
             (storage.getNextAddr() < output_pos) ||
-            ((input_pos >= output_pos) && ((storage.getNextAddr() < buffer_end) || (output_pos - buffer_start))))
+            ((input_pos >= output_pos) && ((storage.getNextAddr() < buffer_end) || (output_pos != buffer_start))))
             return storage;
 
         return {};
@@ -378,12 +382,12 @@ private:
 private:
     static constexpr uint32_t INVALID_INDEX{std::numeric_limits<uint32_t>::max()};
 
-    std::atomic<rb_detail::TaggedUint32> m_InputOffset{};
+    std::atomic<rb::detail::TaggedUint32> m_InputOffset{};
     uint32_t m_OutputFollowOffset{};
     uint32_t m_StrideHeadIndex{};
     uint32_t m_StrideTailIndex{};
 
-    mutable std::atomic<rb_detail::TaggedUint32> m_OutputReadOffset{};
+    mutable std::atomic<rb::detail::TaggedUint32> m_OutputReadOffset{};
 
     std::byte *const m_Buffer;
     std::atomic<uint16_t> *const m_StrideArray;
