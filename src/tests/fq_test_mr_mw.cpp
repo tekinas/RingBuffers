@@ -18,7 +18,7 @@ using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, 20, true>;
 using FunctionQueueType = FunctionQueueMCSP;
 
 template<typename FQType>
-auto makeFunctionQueue(size_t buffer_size, uint16_t threads) noexcept {
+auto makeFunctionQueue(size_t buffer_size, uint16_t threads = 1) noexcept {
     if constexpr (std::same_as<FunctionQueueMCSP, FQType>) return FQType{static_cast<uint32_t>(buffer_size), threads};
     else
         return FQType{buffer_size};

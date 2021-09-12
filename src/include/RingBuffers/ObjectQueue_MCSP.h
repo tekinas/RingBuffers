@@ -19,6 +19,8 @@ private:
     using ReaderPosPtrArray = std::array<ReaderPos *, max_reader_threads>;
     using CacheLine = std::aligned_storage_t<64>;
 
+    static_assert(max_reader_threads != 0);
+
 public:
     class Ptr {
     public:

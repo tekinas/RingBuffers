@@ -15,7 +15,7 @@
 using ComputeFunctionSig = size_t(size_t);
 using FunctionQueueUnsync = FunctionQueue<ComputeFunctionSig, false>;
 using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, false>;
-using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, false>;
+using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, 1, false>;
 using FunctionQueueType = FunctionQueueUnsync;
 
 template<typename FQType>

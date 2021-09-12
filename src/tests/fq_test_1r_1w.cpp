@@ -2,6 +2,7 @@
 #include "util.h"
 #include <RingBuffers/FunctionQueue_MCSP.h>
 #include <RingBuffers/FunctionQueue_SCSP.h>
+#include <limits>
 #include <random>
 
 #include <fmt/format.h>
@@ -10,33 +11,15 @@
 
 using ComputeFunctionSig = size_t(size_t);
 using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, false>;
-using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, false>;
-using FunctionQueueType = FunctionQueueSCSP;
+using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, 1, false>;
+using FunctionQueueType = FunctionQueueMCSP;
 
-template<typename FunctionQueueType>
-class FunctionQueueData {
-private:
-    [[no_unique_address]] std::conditional_t<std::same_as<FunctionQueueType, FunctionQueueMCSP>,
-                                             std::unique_ptr<std::byte[]>, std::monostate>
-
-            functionQueueBuffer;
-    [[no_unique_address]] std::conditional_t<std::same_as<FunctionQueueType, FunctionQueueMCSP>,
-                                             std::unique_ptr<std::atomic<uint16_t>[]>, std::monostate>
-            cleanOffsetArray;
-
-public:
-    FunctionQueueType functionQueue;
-
-    template<typename = void>
-    requires std::same_as<FunctionQueueType, FunctionQueueMCSP> FunctionQueueData(size_t buffer_size)
-        : functionQueueBuffer{std::make_unique<std::byte[]>(buffer_size)},
-          cleanOffsetArray{std::make_unique<std::atomic<uint16_t>[]>(FunctionQueueType::clean_array_size(buffer_size))},
-          functionQueue{functionQueueBuffer.get(), buffer_size, cleanOffsetArray.get()} {}
-
-    template<typename = void>
-    requires std::same_as<FunctionQueueType, FunctionQueueSCSP> FunctionQueueData(size_t buffer_size)
-        : functionQueue{buffer_size} {}
-};
+template<typename FQType>
+auto makeFunctionQueue(size_t buffer_size, uint16_t threads = 1) noexcept {
+    if constexpr (std::same_as<FunctionQueueMCSP, FQType>) return FQType{static_cast<uint32_t>(buffer_size), threads};
+    else
+        return FQType{buffer_size};
+}
 
 using util::Timer;
 
@@ -46,17 +29,28 @@ void test(FunctionQueue &functionQueue, CallbackGenerator &callbackGenerator, si
 
     std::jthread reader{[&] {
         start_flag.wait();
-        size_t num{0}, res{0};
+        size_t num{0};
         {
             Timer timer{"reader"};
-            while (res != std::numeric_limits<size_t>::max()) {
-                num = res;
-                if constexpr (std::is_same_v<FunctionQueueSCSP, FunctionQueue>) {
-                    if (!functionQueue.empty()) res = functionQueue.call_and_pop(res);
+            if constexpr (std::is_same_v<FunctionQueueSCSP, FunctionQueue>) {
+                while (true) {
+                    if (!functionQueue.empty())
+                        if (auto const res = functionQueue.call_and_pop(num); res != std::numeric_limits<size_t>::max())
+                            num = res;
+                        else
+                            break;
                     else
                         std::this_thread::yield();
-                } else {
-                    if (auto handle = functionQueue.get_function_handle()) res = handle.call_and_pop(res);
+                }
+            } else {
+                auto reader = functionQueue.getReader(0);
+                while (true) {
+                    if (auto function_handle = reader.get_function_handle())
+                        if (auto const res = function_handle.call_and_pop(num);
+                            res != std::numeric_limits<size_t>::max())
+                            num = res;
+                        else
+                            break;
                     else
                         std::this_thread::yield();
                 }
@@ -99,9 +93,9 @@ int main(int argc, char **argv) {
     size_t const functions = [&] { return (argc >= 4) ? atol(argv[3]) : 20'000'000; }();
     fmt::print("functions : {}\n", functions);
 
-    FunctionQueueData<FunctionQueueType> functionQueueData{buffer_size};
+    auto functionQueue = makeFunctionQueue<FunctionQueueType>(buffer_size);
 
     CallbackGenerator callbackGenerator{seed};
 
-    test(functionQueueData.functionQueue, callbackGenerator, functions);
+    test(functionQueue, callbackGenerator, functions);
 }

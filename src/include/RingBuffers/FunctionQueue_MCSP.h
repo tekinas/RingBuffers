@@ -89,6 +89,7 @@ private:
     static constexpr size_t sentinel_region_size = function_context_footprint + max_obj_footprint;
     static constexpr size_t buffer_alignment = alignof(FunctionContext);
     static_assert(sentinel_region_size <= std::numeric_limits<uint16_t>::max());
+    static_assert(max_reader_threads != 0);
 
     template<typename Callable, typename... CArgs>
     static constexpr bool is_valid_callable_v =
