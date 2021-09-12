@@ -8,6 +8,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <memory_resource>
 #include <type_traits>
 #include <utility>
 
@@ -17,45 +18,30 @@ class FunctionQueue {};
 template<typename R, typename... Args, bool destroyNonInvoked, size_t max_obj_footprint>
 class FunctionQueue<R(Args...), destroyNonInvoked, max_obj_footprint> {
 private:
-    class Storage;
-
     class FunctionContext {
     public:
-        using InvokeAndDestroy = R (*)(void *callable_ptr, Args...) noexcept;
-        using Destroy = void (*)(void *callable_ptr) noexcept;
-
-        struct ReadData {
-            InvokeAndDestroy function;
-            void *callable_ptr;
-            std::byte *next_addr;
-        };
-
-        ReadData getReadData() const noexcept {
-            auto const this_ = std::bit_cast<std::byte *>(this);
-            auto const function = getFp<InvokeAndDestroy>(fp_offset);
-            return {function, this_ + callable_offset, this_ + stride};
+        R operator()(Args... args) const noexcept {
+            return m_InvokeAndDestroy(getCallableAddr(), static_cast<Args>(args)...);
         }
 
-        std::byte *destroyFO() const noexcept {
-            auto const this_ = std::bit_cast<std::byte *>(this);
-            auto const destroy_functor = getFp<Destroy>(destroyFp_offset);
+        void destroyFO() const noexcept { m_Destroy(getCallableAddr()); }
 
-            destroy_functor(this_ + callable_offset);
-            return this_ + stride;
-        }
+        uint16_t getStride() const noexcept { return stride; }
 
-    private:
         template<typename Callable>
-        FunctionContext(rb::detail::Type<Callable>, uint16_t callable_offset, uint16_t stride) noexcept
-            : fp_offset{getFpOffset(&invokeAndDestroy<Callable>)}, destroyFp_offset{getFpOffset(&destroy<Callable>)},
+        FunctionContext(rb::detail::type_tag<Callable>, uint16_t callable_offset, uint16_t stride) noexcept
+            : m_InvokeAndDestroy{invokeAndDestroy<Callable>}, m_Destroy{destroy<Callable>},
               callable_offset{callable_offset}, stride{stride} {}
 
-        uint32_t const fp_offset;
-        [[no_unique_address]] std::conditional_t<destroyNonInvoked, uint32_t const, rb::detail::Empty> destroyFp_offset;
+    private:
+        void *getCallableAddr() const noexcept { return std::bit_cast<std::byte *>(this) + callable_offset; }
+
+        rb::detail::FunctionPtr<R(void *, Args...)> m_InvokeAndDestroy;
+        [[no_unique_address]] std::conditional_t<destroyNonInvoked, rb::detail::FunctionPtr<void(void *)>,
+                                                 rb::detail::Empty>
+                m_Destroy;
         uint16_t const callable_offset;
         uint16_t const stride;
-
-        friend class Storage;
     };
 
     class Storage {
@@ -67,19 +53,19 @@ private:
         std::byte *getNextAddr() const noexcept { return next_addr; }
 
         template<typename Callable, typename... CArgs>
-        void construct(rb::detail::Type<Callable>, CArgs &&...args) const noexcept {
-            uint16_t const callable_offset = callable_ptr - fc_ptr;
-            uint16_t const stride = next_addr - fc_ptr;
+        void construct(rb::detail::type_tag<Callable>, CArgs &&...args) const noexcept {
+            auto const callable_offset = static_cast<uint16_t>(callable_ptr - fc_ptr);
+            auto const stride = static_cast<uint16_t>(next_addr - fc_ptr);
 
-            new (fc_ptr) FunctionContext{rb::detail::Type<Callable>{}, callable_offset, stride};
+            new (fc_ptr) FunctionContext{rb::detail::type<Callable>, callable_offset, stride};
             new (callable_ptr) Callable{std::forward<CArgs>(args)...};
         }
 
         template<size_t obj_align, size_t obj_size>
         static Storage getAlignedStorage(std::byte *buffer_start) noexcept {
             auto const fc_ptr = buffer_start;
-            auto const obj_ptr = align<std::byte, obj_align>(fc_ptr + sizeof(FunctionContext));
-            auto const next_addr = align<std::byte, alignof(FunctionContext)>(obj_ptr + obj_size);
+            auto const obj_ptr = rb::detail::align<std::byte, obj_align>(fc_ptr + sizeof(FunctionContext));
+            auto const next_addr = rb::detail::align<std::byte, alignof(FunctionContext)>(obj_ptr + obj_size);
             return {fc_ptr, obj_ptr, next_addr};
         }
 
@@ -92,12 +78,9 @@ private:
         std::byte *next_addr;
     };
 
-    static constexpr inline size_t function_context_footprint = alignof(FunctionContext) + sizeof(FunctionContext);
-    static constexpr inline size_t sentinel_region_size = function_context_footprint + max_obj_footprint;
-
-public:
-    static constexpr inline size_t BUFFER_ALIGNMENT = alignof(FunctionContext);
-
+    static constexpr size_t function_context_footprint = alignof(FunctionContext) + sizeof(FunctionContext);
+    static constexpr size_t sentinel_region_size = function_context_footprint + max_obj_footprint;
+    static constexpr size_t buffer_alignment = alignof(FunctionContext);
     static_assert(sentinel_region_size <= std::numeric_limits<uint16_t>::max());
 
     template<typename Callable, typename... CArgs>
@@ -106,35 +89,38 @@ public:
                     std::is_nothrow_invocable_r_v<R, Callable, Args...> &&
             ((alignof(Callable) + sizeof(Callable) + function_context_footprint) <= sentinel_region_size);
 
-    FunctionQueue(std::byte *buffer, size_t size) noexcept
-        : m_InputPos{buffer}, m_OutputPos{buffer}, m_Buffer{buffer}, m_BufferEnd{buffer + size - sentinel_region_size} {
-    }
+public:
+    using allocator_type = std::pmr::polymorphic_allocator<>;
 
-    std::byte *buffer() const noexcept { return m_Buffer; }
+    FunctionQueue(size_t buffer_size, allocator_type allocator = {}) noexcept
+        : m_Buffer{static_cast<std::byte *>(allocator.allocate_bytes(buffer_size, buffer_alignment))},
+          m_BufferEnd{m_Buffer + buffer_size - sentinel_region_size}, m_InputPos{m_Buffer}, m_OutputPos{m_Buffer},
+          m_Allocator{allocator} {}
+
+    ~FunctionQueue() noexcept {
+        if constexpr (destroyNonInvoked) destroyAllNonInvoked();
+        m_Allocator.deallocate_bytes(m_Buffer, buffer_size(), buffer_alignment);
+    }
 
     size_t buffer_size() const noexcept { return m_BufferEnd - m_Buffer + sentinel_region_size; }
 
     void clear() noexcept {
-        if constexpr (destroyNonInvoked) destroyAllFO();
+        if constexpr (destroyNonInvoked) destroyAllNonInvoked();
 
         m_InputPos = m_Buffer;
         m_OutputPos = m_Buffer;
     }
 
-    ~FunctionQueue() noexcept {
-        if constexpr (destroyNonInvoked) destroyAllFO();
-    }
-
     bool empty() const noexcept { return m_InputPos == m_OutputPos; }
 
     R call_and_pop(Args... args) const noexcept {
-        auto const functionCxtPtr = std::bit_cast<FunctionContext *>(m_OutputPos);
-        auto const read_data = functionCxtPtr->getReadData();
+        auto const &functionCxt = *std::bit_cast<FunctionContext *>(m_OutputPos);
 
-        rb::detail::ScopeGaurd const set_next_output_pos{
-                [&] { m_OutputPos = read_data.next_addr < m_BufferEnd ? read_data.next_addr : m_Buffer; }};
+        rb::detail::ScopeGaurd const set_next_output_pos{[&, next_addr = m_OutputPos + functionCxt.getStride()] {
+            m_OutputPos = next_addr < m_BufferEnd ? next_addr : m_Buffer;
+        }};
 
-        return read_data.function(read_data.callable_ptr, std::forward<Args>(args)...);
+        return functionCxt(static_cast<Args>(args)...);
     }
 
     template<typename T>
@@ -153,7 +139,7 @@ public:
         auto const storage = getStorage<callable_align, callable_size>();
         if (!storage) return false;
 
-        storage.construct(rb::detail::Type<Callable>{}, std::forward<CArgs>(args)...);
+        storage.construct(rb::detail::type<Callable>, std::forward<CArgs>(args)...);
         auto next_addr = storage.getNextAddr();
         m_InputPos = next_addr < m_BufferEnd ? next_addr : m_Buffer;
 
@@ -161,17 +147,12 @@ public:
     }
 
 private:
-    template<typename T, size_t alignment = alignof(T)>
-    static constexpr T *align(void const *ptr) noexcept {
-        return std::bit_cast<T *>((std::bit_cast<uintptr_t>(ptr) - 1u + alignment) & -alignment);
-    }
-
     template<typename Callable>
     static R invokeAndDestroy(void *data, Args... args) noexcept {
-        auto const functor_ptr = static_cast<Callable *>(data);
-        rb::detail::ScopeGaurd const destroy_functor{[&] { std::destroy_at(functor_ptr); }};
+        auto &callable = *static_cast<Callable *>(data);
+        rb::detail::ScopeGaurd const destroy_functor{[&] { std::destroy_at(&callable); }};
 
-        return std::invoke(*functor_ptr, std::forward<Args>(args)...);
+        return std::invoke(callable, static_cast<Args>(args)...);
     }
 
     template<typename Callable>
@@ -179,60 +160,41 @@ private:
         std::destroy_at(static_cast<Callable *>(data));
     }
 
-    void destroyAllFO() {
-        auto destroyAndGetNextPos = [](auto pos) {
-            auto const functionCxtPtr = std::bit_cast<FunctionContext *>(pos);
-            return functionCxtPtr->destroyFO();
+    void destroyAllNonInvoked() {
+        auto destroyAndGetStride = [](auto pos) {
+            auto const &functionCxt = *std::bit_cast<FunctionContext *>(pos);
+            functionCxt.destroyFO();
+            return functionCxt.getStride();
         };
 
-        auto const input_pos = m_InputPos;
-        auto output_pos = m_OutputPos;
+        if (m_InputPos == m_OutputPos) return;
 
-        if (input_pos == output_pos) return;
-        else if (output_pos > input_pos) {
-            while (output_pos < m_BufferEnd) { output_pos = destroyAndGetNextPos(output_pos); }
+        auto output_pos = m_OutputPos;
+        if (output_pos > m_InputPos) {
+            while (output_pos < m_BufferEnd) output_pos += destroyAndGetStride(output_pos);
             output_pos = m_Buffer;
         }
 
-        while (output_pos != input_pos) { output_pos = destroyAndGetNextPos(output_pos); }
+        while (output_pos != m_InputPos) output_pos += destroyAndGetStride(output_pos);
     }
 
     template<size_t obj_align, size_t obj_size>
     Storage getStorage() const noexcept {
-        auto const input_pos = m_InputPos;
-        auto const output_pos = m_OutputPos;
-        auto const buffer_start = m_Buffer;
-        auto const buffer_end = m_BufferEnd;
-
-        constexpr auto getAlignedStorage = Storage::template getAlignedStorage<obj_align, obj_size>;
-        if (auto const storage = getAlignedStorage(input_pos);
-            (storage.getNextAddr() < output_pos) ||
-            ((input_pos >= output_pos) && ((storage.getNextAddr() < buffer_end) || (output_pos != buffer_start))))
+        if (auto const storage = Storage::template getAlignedStorage<obj_align, obj_size>(m_InputPos);
+            (storage.getNextAddr() < m_OutputPos) ||
+            ((m_InputPos >= m_OutputPos) && ((storage.getNextAddr() < m_BufferEnd) || (m_OutputPos != m_Buffer))))
             return storage;
-
-        return {};
+        else
+            return {};
     }
-
-    static void fp_base_func() noexcept {}
-
-    template<typename FPtr>
-    requires std::is_function_v<std::remove_pointer_t<FPtr>>
-    static auto getFp(uint32_t fp_offset) noexcept {
-        const uintptr_t fp_base =
-                std::bit_cast<uintptr_t>(&fp_base_func) & static_cast<uintptr_t>(0XFFFFFFFF00000000lu);
-        return std::bit_cast<FPtr>(fp_base + fp_offset);
-    }
-
-    template<typename FPtr>
-    requires std::is_function_v<std::remove_pointer_t<FPtr>>
-    static uint32_t getFpOffset(FPtr fp) noexcept { return static_cast<uint32_t>(std::bit_cast<uintptr_t>(fp)); }
 
 private:
-    std::byte *m_InputPos;
-    mutable std::byte *m_OutputPos;
-
     std::byte *const m_Buffer;
     std::byte *const m_BufferEnd;
+
+    std::byte *m_InputPos;
+    mutable std::byte *m_OutputPos;
+    allocator_type m_Allocator;
 };
 
 #endif

@@ -6,6 +6,7 @@
 #include <cassert>
 #include <cstdint>
 #include <memory>
+#include <memory_resource>
 #include <type_traits>
 #include <utility>
 
@@ -32,11 +33,11 @@ public:
         operator bool() const noexcept { return object_queue; }
 
         ObjectType &operator*() const noexcept {
-            return object_queue->m_ObjectArray[object_queue->m_OutputIndex.load(std::memory_order::relaxed)];
+            return object_queue->m_Array[object_queue->m_OutputIndex.load(std::memory_order::relaxed)];
         }
 
         ObjectType *get() const noexcept {
-            return object_queue->m_ObjectArray + object_queue->m_OutputIndex.load(std::memory_order::relaxed);
+            return object_queue->m_Array + object_queue->m_OutputIndex.load(std::memory_order::relaxed);
         }
 
         ~Ptr() {
@@ -60,14 +61,18 @@ public:
     };
 
 public:
-    ObjectQueue_SCSP(ObjectType *object_array, size_t array_size) noexcept
-        : m_LastElementIndex{array_size - 1}, m_ObjectArray{object_array} {}
+    using allocator_type = std::pmr::polymorphic_allocator<>;
 
-    ~ObjectQueue_SCSP() { destroyAllObjects(); }
+    ObjectQueue_SCSP(size_t array_size, allocator_type allocator = {}) noexcept
+        : m_LastElementIndex{array_size}, m_Array{allocator.allocate_object<ObjectType>(array_size + 1)},
+          m_Allocator{allocator} {}
 
-    ObjectType *object_array() const noexcept { return m_ObjectArray; }
+    ~ObjectQueue_SCSP() {
+        destroyAllObjects();
+        m_Allocator.deallocate_object(m_Array, m_LastElementIndex + 1);
+    }
 
-    uint32_t array_size() const noexcept { return m_LastElementIndex + 1; }
+    uint32_t array_size() const noexcept { return m_LastElementIndex; }
 
     bool empty() const noexcept {
         return m_InputIndex.load(std::memory_order::acquire) == m_OutputIndex.load(std::memory_order::acquire);
@@ -102,20 +107,19 @@ public:
             m_OutputIndex.store(nextIndex, std::memory_order::release);
         }};
 
-        return std::forward<Functor>(functor)(m_ObjectArray[output_index]);
+        return std::forward<Functor>(functor)(m_Array[output_index]);
     }
 
     template<typename Functor>
     requires std::is_nothrow_invocable_v<Functor, ObjectType &> size_t consume_all(Functor &&functor)
     const noexcept {
         auto const input_index = m_InputIndex.load(std::memory_order::acquire);
-
         rb::detail::ScopeGaurd const set_next_index{
                 [this, input_index] { m_OutputIndex.store(input_index, std::memory_order::release); }};
 
         auto consume_and_destroy = [this, &functor](uint32_t index, uint32_t end) {
             for (; index != end; ++index) {
-                std::forward<Functor>(functor)(m_ObjectArray[index]);
+                std::forward<Functor>(functor)(m_Array[index]);
                 destroy(index);
             }
         };
@@ -146,7 +150,7 @@ public:
 
         if (next_input_index == output_index) return false;
 
-        std::construct_at(m_ObjectArray + input_index, std::forward<Args>(args)...);
+        std::construct_at(m_Array + input_index, std::forward<Args>(args)...);
 
         m_InputIndex.store(next_input_index, std::memory_order::release);
 
@@ -165,7 +169,7 @@ public:
 
         if (!count_avl) return 0;
 
-        auto const obj_emplaced = std::forward<Functor>(functor)(m_ObjectArray + input_index, count_avl);
+        auto const obj_emplaced = std::forward<Functor>(functor)(m_Array + input_index, count_avl);
         auto const input_end = input_index + obj_emplaced;
         auto const next_input_index = (input_end == (m_LastElementIndex + 1)) ? 0 : input_end;
 
@@ -182,21 +186,22 @@ private:
 
             if (output_index == input_index) return;
             else if (output_index > input_index) {
-                std::destroy_n(m_ObjectArray + output_index, m_LastElementIndex - output_index + 1);
-                std::destroy_n(m_ObjectArray, input_index);
+                std::destroy_n(m_Array + output_index, m_LastElementIndex - output_index + 1);
+                std::destroy_n(m_Array, input_index);
             } else
-                std::destroy_n(m_ObjectArray + output_index, input_index - output_index);
+                std::destroy_n(m_Array + output_index, input_index - output_index);
         }
     }
 
-    void destroy(size_t index) const noexcept { std::destroy_at(m_ObjectArray + index); }
+    void destroy(size_t index) const noexcept { std::destroy_at(m_Array + index); }
 
 private:
     std::atomic<size_t> m_InputIndex{0};
     mutable std::atomic<size_t> m_OutputIndex{0};
 
     size_t const m_LastElementIndex;
-    ObjectType *const m_ObjectArray;
+    ObjectType *const m_Array;
+    allocator_type m_Allocator;
 };
 
 #endif

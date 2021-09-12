@@ -10,13 +10,14 @@
 #include <type_traits>
 #include <utility>
 
-template<typename ObjectType, size_t max_reader_threads = 8>
+template<typename ObjectType, size_t max_reader_threads>
 requires std::is_nothrow_destructible_v<ObjectType>
 class ObjectQueue_MCSP {
 private:
     using ObjectPtr = std::array<ObjectType *, 2>;
     using ReaderPos = std::atomic<ObjectType *>;
     using ReaderPosPtrArray = std::array<ReaderPos *, max_reader_threads>;
+    using CacheLine = std::aligned_storage_t<64>;
 
 public:
     class Ptr {
@@ -49,8 +50,6 @@ public:
         }
 
     private:
-        friend class ObjectQueue_MCSP;
-
         Ptr(ObjectPtr object_pos, ReaderPos *reader_pos) noexcept : object_pos{object_pos}, reader_pos{reader_pos} {}
 
         void destroyObject() const noexcept {
@@ -58,6 +57,7 @@ public:
             reader_pos->store(object_pos[1], std::memory_order::release);
         }
 
+        friend class ObjectQueue_MCSP;
         ObjectPtr object_pos{nullptr, nullptr};
         ReaderPos *reader_pos;
     };
@@ -96,6 +96,11 @@ public:
 
         ~Reader() { m_ReaderPos->store(nullptr, std::memory_order::release); }
 
+        Reader(Reader const &) = delete;
+        Reader &operator=(Reader const &) = delete;
+        Reader(Reader &&) = delete;
+        Reader &operator=(Reader &&) = delete;
+
     private:
         template<auto get_object, typename Functor>
         bool consume_impl(Functor &&functor) const noexcept {
@@ -111,7 +116,7 @@ public:
         template<auto get_object, typename Functor>
         uint32_t consume_all_impl(Functor &&functor) const noexcept {
             uint32_t consumed{0};
-            ObjectType *last_free_pos;
+            ObjectType *last_free_pos{};
             while (true) {
                 if (auto const object_pos = (m_ObjectQueue->*get_object)(); object_pos[0]) {
                     std::forward<Functor>(functor)(*object_pos[0]);
@@ -130,16 +135,15 @@ public:
 
     private:
         friend class ObjectQueue_MCSP;
-
-        ObjectQueue_MCSP const *const m_ObjectQueue{};
-        ReaderPos *const m_ReaderPos;
+        ObjectQueue_MCSP const *m_ObjectQueue{};
+        ReaderPos *m_ReaderPos;
     };
 
     using allocator_type = std::pmr::polymorphic_allocator<>;
 
     ObjectQueue_MCSP(uint32_t array_size, uint16_t reader_threads, allocator_type allocator = {}) noexcept
-        : m_LastElementIndex{array_size}, m_ReaderThreads{reader_threads},
-          m_ObjectArray{allocator.allocate_object<ObjectType>(array_size + 1)},
+        : m_LastElementIndex{array_size},
+          m_ReaderThreads{reader_threads}, m_Array{allocator.allocate_object<ObjectType>(array_size + 1)},
           m_ReaderPosArray{getReaderPosArray(allocator, reader_threads)}, m_Allocator{allocator} {
         resetReaderPosArray();
     }
@@ -147,9 +151,8 @@ public:
     ~ObjectQueue_MCSP() {
         destroyAllObjects();
 
-        m_Allocator.deallocate_object(m_ObjectArray, m_LastElementIndex + 1);
-        for (uint16_t t = 0; t != m_ReaderThreads; ++t)
-            m_Allocator.deallocate_bytes(m_ReaderPosArray[t], 64, alignof(ReaderPos));
+        m_Allocator.deallocate_object(m_Array, m_LastElementIndex + 1);
+        m_Allocator.deallocate_object(std::bit_cast<CacheLine *>(m_ReaderPosArray[0]), m_ReaderThreads);
     }
 
     uint32_t array_size() const noexcept { return m_LastElementIndex; }
@@ -170,7 +173,7 @@ public:
 
     Reader getReader(uint16_t thread_index) const noexcept {
         auto const reader_pos = m_ReaderPosArray[thread_index];
-        reader_pos->store(m_ObjectArray + m_OutputReadIndex.load(std::memory_order::relaxed).getValue(),
+        reader_pos->store(m_Array + m_OutputReadIndex.load(std::memory_order::relaxed).getValue(),
                           std::memory_order::release);
         return Reader{this, reader_pos};
     }
@@ -189,7 +192,7 @@ public:
 
         if (nextInputIndexValue == output_index) return false;
 
-        std::construct_at(m_ObjectArray + index_value, std::forward<Args>(args)...);
+        std::construct_at(m_Array + index_value, std::forward<Args>(args)...);
 
         auto const nextInputIndex = input_index.getIncrTagged(nextInputIndexValue);
         m_InputIndex.store(nextInputIndex, std::memory_order::release);
@@ -218,7 +221,7 @@ public:
 
         if (!count_avl) return 0;
 
-        auto const obj_emplaced = std::forward<Functor>(functor)(m_ObjectArray + index_value, count_avl);
+        auto const obj_emplaced = std::forward<Functor>(functor)(m_Array + index_value, count_avl);
         auto const input_end = index_value + obj_emplaced;
         auto const nextInputIndexValue = (input_end == (m_LastElementIndex + 1)) ? 0 : input_end;
         auto const nextInputIndex = input_index.getIncrTagged(nextInputIndexValue);
@@ -237,32 +240,27 @@ public:
     }
 
     void clean_memory() noexcept {
-        auto get_distance = [follow_index = m_OutputFollowIndex,
-                             rem = m_LastElementIndex - m_OutputFollowIndex](uint32_t index) {
-            return (index >= follow_index) ? (index - follow_index) : (rem + index);
-        };
-
+        constexpr auto MAX_IDX = std::numeric_limits<uint32_t>::max();
+        auto const currentFollowIndex = m_OutputFollowIndex;
         auto const currentReadIndex = m_OutputReadIndex.load(std::memory_order::acquire).getValue();
-        constexpr auto MAX_DIST = std::numeric_limits<uint32_t>::max();
 
-        auto min_dist = MAX_DIST;
-        uint32_t nearest_index;
-
+        auto less_idx = MAX_IDX, gequal_idx = MAX_IDX;
         for (uint16_t t = 0; t != m_ReaderThreads; ++t) {
             if (auto const output_pos = m_ReaderPosArray[t]->load(std::memory_order::acquire)) {
-                auto const output_index = output_pos - m_ObjectArray;
-                auto const dist = get_distance(output_index);
-                if (dist < min_dist) {
-                    nearest_index = output_index;
-                    min_dist = dist;
-                }
+                auto const output_index = static_cast<uint32_t>(output_pos - m_Array);
+                if (output_index >= currentFollowIndex) gequal_idx = std::min(gequal_idx, output_index);
+                else
+                    less_idx = std::min(less_idx, output_index);
             }
         }
-        m_OutputFollowIndex = min_dist != MAX_DIST ? nearest_index : currentReadIndex;
+
+        m_OutputFollowIndex =
+                (gequal_idx != MAX_IDX) ? gequal_idx : ((less_idx != MAX_IDX) ? less_idx : currentReadIndex);
     }
 
 private:
     ObjectPtr get_object() const noexcept {
+        constexpr auto null_ptr = ObjectPtr{nullptr, nullptr};
         auto next_index = [lastElement = m_LastElementIndex](uint32_t index) {
             return index == lastElement ? 0 : index + 1;
         };
@@ -273,29 +271,29 @@ private:
 
         do {
             if (input_index.getTag() < output_index.getTag() || input_index.getValue() == output_index.getValue())
-                return {nullptr, nullptr};
+                return null_ptr;
             nextOutputIndex = input_index.getSameTagged(next_index(output_index.getValue()));
         } while (!m_OutputReadIndex.compare_exchange_weak(output_index, nextOutputIndex, std::memory_order::relaxed,
                                                           std::memory_order::relaxed));
-        return {m_ObjectArray + output_index.getValue(), m_ObjectArray + nextOutputIndex.getValue()};
+        return {m_Array + output_index.getValue(), m_Array + nextOutputIndex.getValue()};
     }
 
     ObjectPtr get_object_check_once() const noexcept {
+        constexpr auto null_ptr = ObjectPtr{nullptr, nullptr};
         auto output_index = m_OutputReadIndex.load(std::memory_order::relaxed);
         auto const input_index = m_InputIndex.load(std::memory_order::acquire);
         auto const currentIndex = output_index.getValue();
 
-        if (input_index.getTag() < output_index.getTag() || input_index.getValue() == currentIndex)
-            return {nullptr, nullptr};
+        if (input_index.getTag() < output_index.getTag() || input_index.getValue() == currentIndex) return null_ptr;
 
         auto const nextIndex = currentIndex == m_LastElementIndex ? 0 : (currentIndex + 1);
         auto const nextOutputIndex = input_index.getSameTagged(nextIndex);
 
         if (m_OutputReadIndex.compare_exchange_strong(output_index, nextOutputIndex, std::memory_order::relaxed,
                                                       std::memory_order::relaxed))
-            return {m_ObjectArray + currentIndex, m_ObjectArray + nextIndex};
+            return {m_Array + currentIndex, m_Array + nextIndex};
         else
-            return {nullptr, nullptr};
+            return null_ptr;
     }
 
     void destroyAllObjects() noexcept {
@@ -305,10 +303,10 @@ private:
 
             if (output_index == input_index) return;
             else if (output_index > input_index) {
-                std::destroy_n(m_ObjectArray + output_index, m_LastElementIndex - output_index + 1);
-                std::destroy_n(m_ObjectArray, input_index);
+                std::destroy_n(m_Array + output_index, m_LastElementIndex - output_index + 1);
+                std::destroy_n(m_Array, input_index);
             } else
-                std::destroy_n(m_ObjectArray + output_index, input_index - output_index);
+                std::destroy_n(m_Array + output_index, input_index - output_index);
         }
     }
 
@@ -318,8 +316,8 @@ private:
 
     static auto getReaderPosArray(allocator_type allocator, uint16_t threads) noexcept {
         ReaderPosPtrArray readerPosArray;
-        for (uint16_t t = 0; t != threads; ++t)
-            readerPosArray[t] = static_cast<ReaderPos *>(allocator.allocate_bytes(64, alignof(ReaderPos)));
+        auto const cache_line_array = allocator.allocate_object<CacheLine>(threads);
+        for (uint16_t t = 0; t != threads; ++t) readerPosArray[t] = std::bit_cast<ReaderPos *>(cache_line_array + t);
         return readerPosArray;
     }
 
@@ -330,7 +328,7 @@ private:
 
     uint32_t const m_LastElementIndex;
     uint16_t const m_ReaderThreads;
-    ObjectType *const m_ObjectArray;
+    ObjectType *const m_Array;
     ReaderPosPtrArray const m_ReaderPosArray;
     allocator_type m_Allocator;
 };

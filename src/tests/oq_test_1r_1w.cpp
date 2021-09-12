@@ -59,9 +59,9 @@ private:
 using BoostQueueSCSP = boost::lockfree::spsc_queue<Obj, boost::lockfree::fixed_sized<true>>;
 using BoostQueueMCMP = boost::lockfree::queue<Obj, boost::lockfree::fixed_sized<true>>;
 using ObjectQueueSCSP = ObjectQueue_SCSP<Obj>;
-using ObjectQueueMCSP = ObjectQueue_MCSP<Obj>;
+using ObjectQueueMCSP = ObjectQueue_MCSP<Obj, 1>;
 using FunctionQueueSCSP = FunctionQueue_SCSP<size_t(Obj::RNG &, size_t), false, alignof(Obj) + sizeof(Obj)>;
-using FunctionQueueMCSP = FunctionQueue_MCSP<size_t(Obj::RNG &, size_t), false, alignof(Obj) + sizeof(Obj)>;
+using FunctionQueueMCSP = FunctionQueue_MCSP<size_t(Obj::RNG &, size_t), 1, false, alignof(Obj) + sizeof(Obj)>;
 using BufferQueueSCSP = BufferQueue_SCSP<false, false, alignof(Obj)>;
 using BufferQueueMCSP = BufferQueue_MCSP<false, alignof(Obj)>;
 
@@ -104,8 +104,9 @@ void test(ObjectQueueType &objectQueue, uint32_t objects, size_t seed) noexcept 
                         --obj;
                     }
                 } else if constexpr (std::same_as<ObjectQueueType, FunctionQueueMCSP>) {
+                    auto const reader = objectQueue.getReader(0);
                     while (true)
-                        if (auto handle = objectQueue.get_function_handle()) {
+                        if (auto handle = reader.get_function_handle()) {
                             seed = handle.call_and_pop(rng, seed);
                             --obj;
                         } else
@@ -202,7 +203,7 @@ int main(int argc, char **argv) {
 
     {
         fmt::print("\nobject queue scsp test ...\n");
-        ObjectQueueSCSP objectQueueSCSP{buffer.get(), capacity};
+        ObjectQueueSCSP objectQueueSCSP{capacity};
         test(objectQueueSCSP, objects, seed);
     }
 
@@ -226,17 +227,13 @@ int main(int argc, char **argv) {
 
     {
         fmt::print("\nfunction queue scsp test ...\n");
-        FunctionQueueSCSP funtionQueue{reinterpret_cast<std::byte *>(buffer.get()), sizeof(Obj) * capacity};
+        FunctionQueueSCSP funtionQueue{sizeof(Obj) * capacity};
         test(funtionQueue, objects, seed);
     }
 
     {
         fmt::print("\nfunction queue mcsp test ...\n");
-        size_t const buffer_size = sizeof(Obj) * capacity;
-        auto const cleanOffsetArray =
-                std::make_unique<std::atomic<uint16_t>[]>(FunctionQueueMCSP::clean_array_size(buffer_size));
-        FunctionQueueMCSP funtionQueue{reinterpret_cast<std::byte *>(buffer.get()), sizeof(Obj) * capacity,
-                                       cleanOffsetArray.get()};
+        FunctionQueueMCSP funtionQueue{sizeof(Obj) * capacity, 1};
         test(funtionQueue, objects, seed);
     }
 }

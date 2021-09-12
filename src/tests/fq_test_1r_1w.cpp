@@ -11,18 +11,15 @@
 using ComputeFunctionSig = size_t(size_t);
 using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, false>;
 using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, false>;
-using FunctionQueueType = FunctionQueueMCSP;
-
-template<typename Test, template<typename, auto...> class Ref>
-struct is_specialization : std::false_type {};
-
-template<template<typename, auto...> class Ref, typename T, auto... args>
-struct is_specialization<Ref<T, args...>, Ref> : std::true_type {};
+using FunctionQueueType = FunctionQueueSCSP;
 
 template<typename FunctionQueueType>
 class FunctionQueueData {
 private:
-    std::unique_ptr<std::byte[]> functionQueueBuffer;
+    [[no_unique_address]] std::conditional_t<std::same_as<FunctionQueueType, FunctionQueueMCSP>,
+                                             std::unique_ptr<std::byte[]>, std::monostate>
+
+            functionQueueBuffer;
     [[no_unique_address]] std::conditional_t<std::same_as<FunctionQueueType, FunctionQueueMCSP>,
                                              std::unique_ptr<std::atomic<uint16_t>[]>, std::monostate>
             cleanOffsetArray;
@@ -31,15 +28,14 @@ public:
     FunctionQueueType functionQueue;
 
     template<typename = void>
-    requires is_specialization<FunctionQueueType, FunctionQueue_MCSP>::value FunctionQueueData(size_t buffer_size)
+    requires std::same_as<FunctionQueueType, FunctionQueueMCSP> FunctionQueueData(size_t buffer_size)
         : functionQueueBuffer{std::make_unique<std::byte[]>(buffer_size)},
           cleanOffsetArray{std::make_unique<std::atomic<uint16_t>[]>(FunctionQueueType::clean_array_size(buffer_size))},
           functionQueue{functionQueueBuffer.get(), buffer_size, cleanOffsetArray.get()} {}
 
     template<typename = void>
-    requires is_specialization<FunctionQueueType, FunctionQueue_SCSP>::value FunctionQueueData(size_t buffer_size)
-        : functionQueueBuffer{std::make_unique<std::byte[]>(buffer_size)}, functionQueue{functionQueueBuffer.get(),
-                                                                                         buffer_size} {}
+    requires std::same_as<FunctionQueueType, FunctionQueueSCSP> FunctionQueueData(size_t buffer_size)
+        : functionQueue{buffer_size} {}
 };
 
 using util::Timer;

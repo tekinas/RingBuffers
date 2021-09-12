@@ -18,34 +18,17 @@ using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, false>;
 using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, false>;
 using FunctionQueueType = FunctionQueueUnsync;
 
+template<typename FQType>
+auto makeFunctionQueue(size_t buffer_size) noexcept {
+    if constexpr (std::same_as<FunctionQueueMCSP, FQType>) return FQType{static_cast<uint32_t>(buffer_size), 1};
+    else
+        return FQType{buffer_size};
+}
+
 using util::Timer;
 
 size_t default_alloc{};
 size_t *bytes_allocated = &default_alloc;
-
-template<typename FunctionQueueType>
-class FunctionQueueData {
-private:
-    std::unique_ptr<std::byte[]> functionQueueBuffer;
-    [[no_unique_address]] std::conditional_t<std::same_as<FunctionQueueType, FunctionQueueMCSP>,
-                                             std::unique_ptr<std::atomic<uint16_t>[]>, std::monostate>
-            cleanOffsetArray;
-
-public:
-    FunctionQueueType functionQueue;
-
-    template<typename = void>
-    requires std::same_as<FunctionQueueType, FunctionQueueMCSP> FunctionQueueData(size_t buffer_size)
-        : functionQueueBuffer{std::make_unique<std::byte[]>(buffer_size)},
-          cleanOffsetArray{std::make_unique<std::atomic<uint16_t>[]>(FunctionQueueType::clean_array_size(buffer_size))},
-          functionQueue{functionQueueBuffer.get(), buffer_size, cleanOffsetArray.get()} {}
-
-    template<typename = void>
-    requires std::same_as<FunctionQueueType, FunctionQueueUnsync> || std::same_as<FunctionQueueType, FunctionQueueSCSP>
-    FunctionQueueData(size_t buffer_size)
-        : functionQueueBuffer{std::make_unique<std::byte[]>(buffer_size)}, functionQueue{functionQueueBuffer.get(),
-                                                                                         buffer_size} {}
-};
 
 template<typename FunctionQueueType>
 requires std::same_as<FunctionQueueType, FunctionQueueUnsync> || std::same_as<FunctionQueueType, FunctionQueueSCSP> ||
@@ -58,7 +41,8 @@ void test(FunctionQueueType &functionQueue) noexcept {
                       std::same_as<FunctionQueueType, FunctionQueueSCSP>)
             while (!functionQueue.empty()) num = functionQueue.call_and_pop(num);
         else {
-            while (!functionQueue.empty()) num = functionQueue.get_function_handle(rb::check_once).call_and_pop(num);
+            auto reader = functionQueue.getReader(0);
+            while (!functionQueue.empty()) num = reader.get_function_handle(rb::check_once).call_and_pop(num);
         }
     }
 
@@ -88,8 +72,8 @@ void test(std::vector<std::function<ComputeFunctionSig>> &vectorStdComputeQueue)
 int main(int argc, char **argv) {
     if (argc == 1) { fmt::print("usage : ./fq_test_call_only <buffer_size> <seed>\n"); }
 
-    size_t const functionQueueBufferSize = [&] { return (argc >= 2) ? atof(argv[1]) : 500.0; }() * 1024 * 1024;
-    fmt::print("buffer size : {}\n", functionQueueBufferSize);
+    size_t const buffer_size = [&] { return (argc >= 2) ? atof(argv[1]) : 500.0; }() * 1024 * 1024;
+    fmt::print("buffer size : {}\n", buffer_size);
 
     size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : std::random_device{}(); }();
     fmt::print("seed : {}\n", seed);
@@ -99,7 +83,7 @@ int main(int argc, char **argv) {
 
     CallbackGenerator callbackGenerator{seed};
 
-    FunctionQueueData<FunctionQueueType> fq_data{functionQueueBufferSize};
+    auto functionQueue = makeFunctionQueue<FunctionQueueType>(buffer_size);
 
     size_t const compute_functors = [&] {
         Timer timer{"function queue write time"};
@@ -109,7 +93,7 @@ int main(int argc, char **argv) {
         while (addFunction) {
             ++functions;
             callbackGenerator.addCallback(
-                    [&]<typename T>(T &&t) { addFunction = fq_data.functionQueue.push(std::forward<T>(t)); });
+                    [&]<typename T>(T &&t) { addFunction = functionQueue.push(std::forward<T>(t)); });
         }
         --functions;
 
@@ -150,11 +134,11 @@ int main(int argc, char **argv) {
                        ONE_MiB);
     fmt::print("std::vector<std::function> memory footprint : {} MiB\n",
                (stdFuncionVector.size() * sizeof(std::function<ComputeFunctionSig>) + stdFunctionAllocs) / ONE_MiB);
-    fmt::print("function queue memory : {} MiB\n\n", fq_data.functionQueue.buffer_size() / ONE_MiB);
+    fmt::print("function queue memory : {} MiB\n\n", functionQueue.buffer_size() / ONE_MiB);
 
     test(follyFunctionVector);
     test(stdFuncionVector);
-    test(fq_data.functionQueue);
+    test(functionQueue);
 }
 
 

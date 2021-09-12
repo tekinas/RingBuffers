@@ -14,31 +14,15 @@ using namespace util;
 
 using ComputeFunctionSig = size_t(size_t);
 using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, true>;
-using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, true>;
+using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, 20, true>;
 using FunctionQueueType = FunctionQueueMCSP;
 
-template<typename FunctionQueueType>
-class FunctionQueueData {
-private:
-    std::unique_ptr<std::byte[]> functionQueueBuffer;
-    [[no_unique_address]] std::conditional_t<std::same_as<FunctionQueueType, FunctionQueueMCSP>,
-                                             std::unique_ptr<std::atomic<uint16_t>[]>, std::monostate>
-            cleanOffsetArray;
-
-public:
-    FunctionQueueType functionQueue;
-
-    template<typename = void>
-    requires std::same_as<FunctionQueueType, FunctionQueueMCSP> FunctionQueueData(size_t buffer_size)
-        : functionQueueBuffer{std::make_unique<std::byte[]>(buffer_size)},
-          cleanOffsetArray{std::make_unique<std::atomic<uint16_t>[]>(FunctionQueueType::clean_array_size(buffer_size))},
-          functionQueue{functionQueueBuffer.get(), buffer_size, cleanOffsetArray.get()} {}
-
-    template<typename = void>
-    requires std::same_as<FunctionQueueType, FunctionQueueSCSP> FunctionQueueData(size_t buffer_size)
-        : functionQueueBuffer{std::make_unique<std::byte[]>(buffer_size)}, functionQueue{functionQueueBuffer.get(),
-                                                                                         buffer_size} {}
-};
+template<typename FQType>
+auto makeFunctionQueue(size_t buffer_size, uint16_t threads) noexcept {
+    if constexpr (std::same_as<FunctionQueueMCSP, FQType>) return FQType{static_cast<uint32_t>(buffer_size), threads};
+    else
+        return FQType{buffer_size};
+}
 
 template<typename FunctionQueue>
 void reader(FunctionQueue &fq, size_t seed, uint16_t t, std::vector<size_t> &result_vector,
@@ -56,8 +40,9 @@ void reader(FunctionQueue &fq, size_t seed, uint16_t t, std::vector<size_t> &res
             ++func;
         }
     } else if (std::same_as<FunctionQueue, FunctionQueueMCSP>) {
+        auto reader = fq.getReader(t);
         while (!fq.empty()) {
-            if (auto handle = fq.get_function_handle(rb::check_once)) {
+            if (auto handle = reader.get_function_handle(rb::check_once)) {
                 auto const res = handle.call_and_pop(seed);
                 res_vec.push_back(res);
                 ++func;
@@ -75,7 +60,7 @@ void reader(FunctionQueue &fq, size_t seed, uint16_t t, std::vector<size_t> &res
 int main(int argc, char **argv) {
     if (argc == 1) { fmt::print("usage : ./fq_test_mr_mw <writer_threads> <reader_threads> <seed>\n"); }
 
-    constexpr size_t functionQueueBufferSize = (1024 + 150) * 1024 * 1024;
+    constexpr size_t buffer_size = (1024 + 150) * 1024 * 1024;
 
     size_t const numWriterThreads = [&] { return (argc >= 2) ? atol(argv[1]) : std::thread::hardware_concurrency(); }();
     fmt::print("writer threads : {}\n", numWriterThreads);
@@ -86,20 +71,20 @@ int main(int argc, char **argv) {
     size_t const seed = [&] { return (argc >= 4) ? atol(argv[3]) : std::random_device{}(); }();
     fmt::print("seed : {}\n\n", seed);
 
-    FunctionQueueData<FunctionQueueType> fq_data{functionQueueBufferSize};
+    auto functionQueue = makeFunctionQueue<FunctionQueueType>(buffer_size, numReaderThreads);
 
     {
         Timer timer{"data write time :"};
         std::vector<std::jthread> writer_threads;
         for (auto t = numWriterThreads; t--;) {
-            writer_threads.emplace_back([=, &fq_data] {
+            writer_threads.emplace_back([=, &functionQueue] {
                 static util::SpinLock write_lock;
                 auto func = 3'100'000;
                 CallbackGenerator callbackGenerator{seed};
                 while (func) {
                     callbackGenerator.addCallback([&]<typename T>(T &&t) {
                         std::scoped_lock lock{write_lock};
-                        fq_data.functionQueue.push(std::forward<T>(t));
+                        functionQueue.push(std::forward<T>(t));
                         --func;
                     });
                 }
@@ -117,8 +102,8 @@ int main(int argc, char **argv) {
         Timer timer{"data read time :"};
         std::vector<std::jthread> reader_threads;
         for (auto t = numReaderThreads; t--;) {
-            reader_threads.emplace_back([&fq_data, t, seed, &result_vector, &res_vec_mut] {
-                reader(fq_data.functionQueue, seed, t, result_vector, res_vec_mut);
+            reader_threads.emplace_back([&functionQueue, t, seed, &result_vector, &res_vec_mut] {
+                reader(functionQueue, seed, t, result_vector, res_vec_mut);
             });
         }
     }

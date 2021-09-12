@@ -55,7 +55,7 @@ private:
 
 using BoostQueue = boost::lockfree::queue<Obj, boost::lockfree::fixed_sized<true>>;
 using ObjectQueue = ObjectQueue_MCSP<Obj, 20>;
-using FunctionQueue = FunctionQueue_MCSP<uint64_t(Obj::RNG &), false, alignof(Obj) + sizeof(Obj)>;
+using FunctionQueue = FunctionQueue_MCSP<uint64_t(Obj::RNG &), 20, false, alignof(Obj) + sizeof(Obj)>;
 using BufferQueue = BufferQueue_MCSP<false, alignof(Obj)>;
 
 template<typename ObjectQueueType>
@@ -77,18 +77,18 @@ void test(ObjectQueueType &objectQueue, uint16_t threads, uint32_t objects, std:
                     local_result.reserve(object_per_thread);
 
                     {
-                        Timer timer{"read time "};
+                        Timer timer{fmt::format("read time {}", i)};
 
                         if constexpr (std::same_as<ObjectQueueType, BoostQueue>)
                             while (true) {
                                 if (Obj obj; objectQueue.pop(obj)) local_result.push_back(obj(rng));
-                                else if (is_done.load(std::memory_order_relaxed))
+                                else if (is_done.load(std::memory_order::relaxed))
                                     break;
                                 else
                                     std::this_thread::yield();
                             }
                         if constexpr (std::same_as<ObjectQueueType, ObjectQueue>)
-                            while (!is_done.load(std::memory_order_relaxed)) {
+                            while (!is_done.load(std::memory_order::relaxed)) {
                                 auto const reader = objectQueue.getReader(i);
                                 reader.consume_all(rb::check_once,
                                                    [&](Obj &obj) noexcept { local_result.push_back(obj(rng)); });
@@ -116,7 +116,7 @@ void test(ObjectQueueType &objectQueue, uint16_t threads, uint32_t objects, std:
         }
 
         fmt::print("writer thread finished, objects processed : {}\n", objects);
-        is_done.store(true, std::memory_order_release);
+        is_done.store(true, std::memory_order::release);
     }};
 
     start_flag.start();
@@ -146,13 +146,14 @@ void test(FunctionQueue &functionQueue, uint16_t threads, uint32_t objects, std:
                     {
                         Timer timer{"read time "};
 
-                        while (true) {
-                            if (auto handle = functionQueue.get_function_handle()) {
-                                local_result.push_back(handle.call_and_pop(rng));
-                            } else if (is_done.load(std::memory_order_relaxed))
-                                break;
-                            else
-                                std::this_thread::yield();
+                        while (!is_done.load(std::memory_order::relaxed)) {
+                            auto const reader = functionQueue.getReader(i);
+                            while (true)
+                                if (auto handle = reader.get_function_handle())
+                                    local_result.push_back(handle.call_and_pop(rng));
+                                else
+                                    break;
+                            std::this_thread::yield();
                         }
                     }
 
@@ -176,7 +177,7 @@ void test(FunctionQueue &functionQueue, uint16_t threads, uint32_t objects, std:
         }
 
         fmt::print("writer thread finished, objects processed : {}\n", objects);
-        is_done.store(true, std::memory_order_release);
+        is_done.store(true, std::memory_order::release);
     }};
 
     start_flag.start();
@@ -210,7 +211,7 @@ void test(BufferQueue &bufferQueue, uint16_t threads, uint32_t objects, std::siz
                             if (auto data_buffer = bufferQueue.consume()) {
                                 auto &object = *std::bit_cast<Obj *>(data_buffer.get().data());
                                 local_result.push_back(object(rng));
-                            } else if (is_done.load(std::memory_order_relaxed))
+                            } else if (is_done.load(std::memory_order::relaxed))
                                 break;
                             else
                                 std::this_thread::yield();
@@ -238,7 +239,7 @@ void test(BufferQueue &bufferQueue, uint16_t threads, uint32_t objects, std::siz
         }
 
         fmt::print("writer thread finished, objects processed : {}\n", objects);
-        is_done.store(true, std::memory_order_release);
+        is_done.store(true, std::memory_order::release);
     }};
 
     start_flag.start();
@@ -261,8 +262,7 @@ int main(int argc, char **argv) {
     size_t const seed = [&] { return (argc >= 4) ? atol(argv[3]) : std::random_device{}(); }();
     fmt::print("seed : {}\n", seed);
 
-    auto buffer = std::make_unique<
-            std::aligned_storage_t<sizeof(Obj), std::max(FunctionQueue::BUFFER_ALIGNMENT, alignof(Obj))>[]>(capacity);
+    auto buffer = std::make_unique<std::aligned_storage_t<sizeof(Obj)>[]>(capacity);
 
     {
         fmt::print("\nBoost Queue test ....\n");
@@ -278,9 +278,7 @@ int main(int argc, char **argv) {
 
     {
         fmt::print("\nFunction Queue test ....\n");
-        constexpr size_t buffer_size = capacity * sizeof(Obj);
-        auto cleanOffsetArray = std::make_unique<std::atomic<uint16_t>[]>(FunctionQueue::clean_array_size(buffer_size));
-        FunctionQueue functionQueue{std::bit_cast<std::byte *>(buffer.get()), buffer_size, cleanOffsetArray.get()};
+        FunctionQueue functionQueue{capacity * sizeof(Obj), num_threads};
         test(functionQueue, num_threads, objects, seed);
     }
 
