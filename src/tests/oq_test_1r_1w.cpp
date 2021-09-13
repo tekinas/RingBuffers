@@ -56,12 +56,13 @@ private:
     uint32_t c;
 };
 
+using namespace rb;
 using BoostQueueSCSP = boost::lockfree::spsc_queue<Obj, boost::lockfree::fixed_sized<true>>;
 using BoostQueueMCMP = boost::lockfree::queue<Obj, boost::lockfree::fixed_sized<true>>;
 using ObjectQueueSCSP = ObjectQueue_SCSP<Obj>;
 using ObjectQueueMCSP = ObjectQueue_MCSP<Obj, 1>;
-using FunctionQueueSCSP = FunctionQueue_SCSP<size_t(Obj::RNG &, size_t), false, alignof(Obj) + sizeof(Obj)>;
-using FunctionQueueMCSP = FunctionQueue_MCSP<size_t(Obj::RNG &, size_t), 1, false, alignof(Obj) + sizeof(Obj)>;
+using FunctionQueueSCSP = FunctionQueue_SCSP<size_t(Obj::RNG &, size_t), false, memory_footprint<Obj>>;
+using FunctionQueueMCSP = FunctionQueue_MCSP<size_t(Obj::RNG &, size_t), 1, false, memory_footprint<Obj>>;
 using BufferQueueSCSP = BufferQueue_SCSP<false, false, alignof(Obj)>;
 using BufferQueueMCSP = BufferQueue_MCSP<false, alignof(Obj)>;
 

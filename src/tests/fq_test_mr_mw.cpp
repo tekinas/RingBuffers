@@ -12,6 +12,7 @@
 
 using namespace util;
 
+using namespace rb;
 using ComputeFunctionSig = size_t(size_t);
 using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, true>;
 using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, 20, true>;

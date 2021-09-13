@@ -53,9 +53,10 @@ private:
     uint32_t c;
 };
 
+using namespace rb;
 using BoostQueue = boost::lockfree::queue<Obj, boost::lockfree::fixed_sized<true>>;
 using ObjectQueue = ObjectQueue_MCSP<Obj, 20>;
-using FunctionQueue = FunctionQueue_MCSP<uint64_t(Obj::RNG &), 20, false, alignof(Obj) + sizeof(Obj)>;
+using FunctionQueue = FunctionQueue_MCSP<uint64_t(Obj::RNG &), 20, false, memory_footprint<Obj>>;
 using BufferQueue = BufferQueue_MCSP<false, alignof(Obj)>;
 
 template<typename ObjectQueueType>

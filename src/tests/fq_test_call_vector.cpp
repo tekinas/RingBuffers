@@ -12,6 +12,7 @@
 
 #include <fmt/format.h>
 
+using namespace rb;
 using ComputeFunctionSig = size_t(size_t);
 using FunctionQueueUnsync = FunctionQueue<ComputeFunctionSig, false>;
 using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, false>;

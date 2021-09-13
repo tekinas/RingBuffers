@@ -22,7 +22,7 @@ namespace rb::detail {
 
 namespace rb {
     template<auto func>
-    constexpr inline detail::FunctionWrapper<func> function;
+    constexpr inline auto function = detail::FunctionWrapper<func>{};
 }
 
 #endif

@@ -38,12 +38,6 @@ namespace rb::detail {
         explicit Empty(T &&...) noexcept {}
     };
 
-    template<typename>
-    class type_tag {};
-
-    template<typename T>
-    constexpr auto type = type_tag<T>{};
-
     class TaggedUint32 {
     public:
         TaggedUint32() noexcept = default;
@@ -70,11 +64,12 @@ namespace rb::detail {
     template<typename T>
     class FunctionPtr;
 
+    inline void fp_base_func() {}
+
     template<typename ReturnType, typename... FunctionArgs>
     class FunctionPtr<ReturnType(FunctionArgs...)> {
     private:
         using FPtr = ReturnType (*)(FunctionArgs...) noexcept;
-        static void fp_base_func() {}
 
         uint32_t fp_offset;
 
@@ -82,8 +77,7 @@ namespace rb::detail {
         FunctionPtr(FPtr fp) noexcept : fp_offset{static_cast<uint32_t>(std::bit_cast<uintptr_t>(fp))} {}
 
         ReturnType operator()(FunctionArgs... fargs) const noexcept {
-            const uintptr_t fp_base =
-                    std::bit_cast<uintptr_t>(&fp_base_func) & static_cast<uintptr_t>(0XFFFFFFFF00000000lu);
+            const uintptr_t fp_base = std::bit_cast<uintptr_t>(&fp_base_func) & uintptr_t{0XFFFFFFFF00000000lu};
             return std::bit_cast<FPtr>(fp_base + fp_offset)(static_cast<FunctionArgs>(fargs)...);
         }
     };
@@ -94,6 +88,5 @@ namespace rb::detail {
     }
 
 }// namespace rb::detail
-
 
 #endif
