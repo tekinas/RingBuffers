@@ -117,7 +117,7 @@ public:
         rb::detail::ScopeGaurd const set_next_index{
                 [this, input_index] { m_OutputIndex.store(input_index, std::memory_order::release); }};
 
-        auto consume_and_destroy = [this, &functor](uint32_t index, uint32_t end) {
+        auto consume_and_destroy = [this, &functor](size_t index, size_t end) {
             for (; index != end; ++index) {
                 std::forward<Functor>(functor)(m_Array[index]);
                 destroy(index);

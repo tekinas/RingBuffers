@@ -84,11 +84,11 @@ void test(FunctionQueue &functionQueue, CallbackGenerator &callbackGenerator, si
 int main(int argc, char **argv) {
     if (argc == 1) { fmt::print("usage : ./fq_test_1r_1w <buffer_size> <seed> <functions>\n"); }
 
-    size_t const buffer_size = [&] { return (argc >= 2) ? atof(argv[1]) : 1000.0 / 1024.0 / 1024.0; }() * 1024 * 1024;
+    auto const buffer_size = static_cast<size_t>([&] { return (argc >= 2) ? atof(argv[1]) : 1000.0 / 1024.0 / 1024.0; }() * 1024 * 1024);
 
     fmt::print("buffer size : {}\n", buffer_size);
 
-    size_t const seed = [&] { return (argc >= 3) ? atol(argv[2]) : std::random_device{}(); }();
+    auto const seed = [&] { return (argc >= 3) ? atol(argv[2]) : std::random_device{}(); }();
     fmt::print("seed : {}\n", seed);
 
     size_t const functions = [&] { return (argc >= 4) ? atol(argv[3]) : 20'000'000; }();

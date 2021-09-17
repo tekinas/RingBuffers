@@ -63,7 +63,7 @@ int main(int argc, char **argv) {
 
     constexpr size_t buffer_size = (1024 + 150) * 1024 * 1024;
 
-    size_t const numWriterThreads = [&] { return (argc >= 2) ? atol(argv[1]) : std::thread::hardware_concurrency(); }();
+    auto const numWriterThreads = static_cast<uint16_t>([&] { return (argc >= 2) ? atol(argv[1]) : std::thread::hardware_concurrency(); }());
     fmt::print("writer threads : {}\n", numWriterThreads);
 
     size_t const numReaderThreads = [&] { return (argc >= 3) ? atol(argv[2]) : std::thread::hardware_concurrency(); }();

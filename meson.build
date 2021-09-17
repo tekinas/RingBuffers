@@ -1,7 +1,7 @@
 project('FunctionQueue','cpp', default_options : ['cpp_std=c++20','cpp_rtti=false','warning_level=3'])
 
 threads = dependency('threads')
-fmt = dependency('fmt', method : 'cmake', modules : ['fmt::fmt-header-only'])
+fmt = dependency('fmt', method : 'cmake', modules : ['fmt::fmt'])
 boost = dependency('boost')
 folly = dependency('folly', method : 'cmake', modules : ['Folly::folly', 'Folly::folly_deps'])
 ring_buffers = declare_dependency(include_directories : 'src/include')

@@ -70,7 +70,7 @@ template<typename ObjectQueueType>
 requires std::same_as<ObjectQueueType, BoostQueueSCSP> || std::same_as<ObjectQueueType, BoostQueueMCMP> ||
         std::same_as<ObjectQueueType, ObjectQueueSCSP> || std::same_as<ObjectQueueType, ObjectQueueMCSP> ||
         std::same_as<ObjectQueueType, FunctionQueueSCSP> || std::same_as<ObjectQueueType, FunctionQueueMCSP>
-void test(ObjectQueueType &objectQueue, uint32_t objects, size_t seed) noexcept {
+void test(ObjectQueueType &objectQueue, size_t objects, size_t seed) noexcept {
     StartFlag start_flag;
 
     std::jthread writer{[&objectQueue, &start_flag, objects, rng = Obj::RNG{seed}]() mutable {
@@ -80,7 +80,7 @@ void test(ObjectQueueType &objectQueue, uint32_t objects, size_t seed) noexcept 
         while (obj--) {
             Obj o{rng};
             while (!objectQueue.push(o))
-                if constexpr (requires(ObjectQueueType & oq) { oq.clean_memory(); }) objectQueue.clean_memory();
+	    {if constexpr (std::same_as<ObjectQueueType, FunctionQueueMCSP> || std::same_as<ObjectQueueType, ObjectQueueMCSP>) objectQueue.clean_memory();}
         }
     }};
 
@@ -128,7 +128,7 @@ void test(ObjectQueueType &objectQueue, uint32_t objects, size_t seed) noexcept 
 
 template<typename BufferQueue>
 requires std::same_as<BufferQueue, BufferQueueSCSP> || std::same_as<BufferQueue, BufferQueueMCSP>
-void test(BufferQueue &bufferQueue, uint32_t objects, size_t seed) noexcept {
+void test(BufferQueue &bufferQueue, size_t objects, size_t seed) noexcept {
     StartFlag start_flag;
 
     std::jthread writer{[&bufferQueue, &start_flag, objects, rng = Obj::RNG{seed}]() mutable {
