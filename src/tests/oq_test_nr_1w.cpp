@@ -65,7 +65,6 @@ auto calculateAndDisplayFinalHash(auto &final_result) noexcept {
     std::ranges::sort(final_result);
     auto const hash_result = boost::hash_range(final_result.begin(), final_result.end());
     fmt::print("hash result : {}\n", hash_result);
-
     return hash_result;
 }
 
@@ -74,40 +73,30 @@ requires std::same_as<ObjectQueueType, BoostQueue> || std::same_as<ObjectQueueTy
 auto test(ObjectQueueType &objectQueue, uint16_t threads, uint32_t objects, std::size_t seed) noexcept {
     std::vector<uint64_t> final_result;
     {
-        std::mutex final_result_mutex;
-
         std::atomic<bool> is_done{false};
         StartFlag start_flag;
-
         std::jthread writer{[&, objects, rng = Obj::RNG{seed}]() mutable noexcept {
             start_flag.wait();
-
-            auto o = objects;
-            while (o) {
+            for (auto o = objects; o--;) {
                 Obj obj{rng};
                 while (!objectQueue.push(obj)) {
                     std::this_thread::yield();
                     if constexpr (std::same_as<ObjectQueueType, ObjectQueue>) objectQueue.clean_memory();
                 }
-                --o;
             }
-
             fmt::print("writer thread finished, objects processed : {}\n", objects);
             is_done.store(true, std::memory_order::release);
         }};
-
         std::vector<std::jthread> reader_threads;
+        std::mutex final_result_mutex;
         for (uint16_t thread_id{0}; thread_id != threads; ++thread_id)
             reader_threads.emplace_back([&, thread_id, object_per_thread = objects / threads,
                                          rng = Obj::RNG{seed}]() mutable noexcept {
                 start_flag.wait();
-
                 std::vector<uint64_t> local_result;
                 local_result.reserve(object_per_thread);
-
                 {
                     Timer timer{fmt::format("thread {}", thread_id)};
-
                     if constexpr (std::same_as<ObjectQueueType, BoostQueue>)
                         while (true) {
                             if (Obj obj; objectQueue.pop(obj)) local_result.push_back(obj(rng));
@@ -126,54 +115,41 @@ auto test(ObjectQueueType &objectQueue, uint16_t threads, uint32_t objects, std:
                             std::this_thread::yield();
                         }
                 }
-
                 std::scoped_lock lock{final_result_mutex};
                 final_result.insert(final_result.end(), local_result.begin(), local_result.end());
             });
-
         start_flag.start();
     }
-
     return calculateAndDisplayFinalHash(final_result);
 }
 
 auto test(FunctionQueue &functionQueue, uint16_t threads, uint32_t objects, std::size_t seed) noexcept {
     std::vector<uint64_t> final_result;
     {
-        util::SpinLock final_result_mutex;
-
         std::atomic<bool> is_done{false};
         StartFlag start_flag;
-
         std::jthread writer{[&, objects, rng = Obj::RNG{seed}]() mutable noexcept {
             start_flag.wait();
-
-            auto o = objects;
-            while (o) {
+            for (auto o = objects; o--;) {
                 Obj obj{rng};
                 while (!functionQueue.push(obj)) {
                     std::this_thread::yield();
                     functionQueue.clean_memory();
                 }
-                --o;
             }
-
             fmt::print("writer thread finished, objects processed : {}\n", objects);
             is_done.store(true, std::memory_order::release);
         }};
-
         std::vector<std::jthread> reader_threads;
+        util::SpinLock final_result_mutex;
         for (uint16_t thread_id{0}; thread_id != threads; ++thread_id)
             reader_threads.emplace_back(
                     [&, thread_id, object_per_thread = objects / threads, rng = Obj::RNG{seed}]() mutable noexcept {
                         start_flag.wait();
-
                         std::vector<uint64_t> local_result;
                         local_result.reserve(object_per_thread);
-
                         {
                             Timer timer{fmt::format("thread {}", thread_id)};
-
                             while (!is_done.load(std::memory_order::relaxed)) {
                                 for (auto const reader = functionQueue.getReader(thread_id);;)
                                     if (auto handle = reader.get_function_handle())
@@ -183,55 +159,41 @@ auto test(FunctionQueue &functionQueue, uint16_t threads, uint32_t objects, std:
                                 std::this_thread::yield();
                             }
                         }
-
                         std::scoped_lock lock{final_result_mutex};
                         final_result.insert(final_result.end(), local_result.begin(), local_result.end());
                     });
-
-
         start_flag.start();
     }
-
     return calculateAndDisplayFinalHash(final_result);
 }
 
 auto test(BufferQueue &bufferQueue, uint16_t threads, uint32_t objects, std::size_t seed) noexcept {
     std::vector<uint64_t> final_result;
     {
-        util::SpinLock final_result_mutex;
-
         std::atomic<bool> is_done{false};
         StartFlag start_flag;
         std::jthread writer{[&, objects, rng = Obj::RNG{seed}]() mutable noexcept {
             start_flag.wait();
-
-            auto o = objects;
-            while (o) {
+            for (auto o = objects; o--;) {
                 auto const obj_creator = [obj = Obj{rng}](std::span<std::byte> buffer) noexcept {
                     std::construct_at(std::bit_cast<Obj *>(buffer.data()), obj);
                     return sizeof(Obj);
                 };
-
                 while (!bufferQueue.allocate_and_release(sizeof(Obj), obj_creator)) std::this_thread::yield();
-                --o;
             }
-
             fmt::print("writer thread finished, objects processed : {}\n", objects);
             is_done.store(true, std::memory_order::release);
         }};
-
         std::vector<std::jthread> reader_threads;
+        util::SpinLock final_result_mutex;
         for (uint16_t thread_id{0}; thread_id != threads; ++thread_id)
             reader_threads.emplace_back(
                     [&, thread_id, object_per_thread = objects / threads, rng = Obj::RNG{seed}]() mutable noexcept {
                         start_flag.wait();
-
                         std::vector<uint64_t> local_result;
                         local_result.reserve(object_per_thread);
-
                         {
                             Timer timer{fmt::format("thread {}", thread_id)};
-
                             while (true) {
                                 if (auto data_buffer = bufferQueue.consume()) {
                                     auto &object = *std::bit_cast<Obj *>(data_buffer.get().data());
@@ -242,14 +204,11 @@ auto test(BufferQueue &bufferQueue, uint16_t threads, uint32_t objects, std::siz
                                     std::this_thread::yield();
                             }
                         }
-
                         std::scoped_lock lock{final_result_mutex};
                         final_result.insert(final_result.end(), local_result.begin(), local_result.end());
                     });
-
         start_flag.start();
     }
-
     return calculateAndDisplayFinalHash(final_result);
 }
 

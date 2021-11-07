@@ -70,13 +70,10 @@ template<typename ObjectQueueType>
 requires std::same_as<ObjectQueueType, BoostQueueSCSP> || std::same_as<ObjectQueueType, BoostQueueMCMP> ||
         std::same_as<ObjectQueueType, ObjectQueueSCSP> || std::same_as<ObjectQueueType, ObjectQueueMCSP> ||
         std::same_as<ObjectQueueType, FunctionQueueSCSP> || std::same_as<ObjectQueueType, FunctionQueueMCSP>
-                size_t test(ObjectQueueType &objectQueue, size_t objects, size_t seed)
-noexcept {
+auto test(ObjectQueueType &objectQueue, size_t objects, size_t seed) noexcept {
     StartFlag start_flag;
-
     std::jthread writer{[&objectQueue, &start_flag, objects, rng = Obj::RNG{seed}]() mutable {
         start_flag.wait();
-
         for (auto obj{objects}; obj--;) {
             Obj o{rng};
             while (!objectQueue.push(o)) {
@@ -86,10 +83,8 @@ noexcept {
             }
         }
     }};
-
     std::jthread reader{[&objectQueue, &start_flag, objects, seed, rng = Obj::RNG{seed}]() mutable {
         start_flag.wait();
-
         auto obj = objects;
         for (Timer timer{"read time "}; obj;) {
             if constexpr (std::same_as<ObjectQueueType, ObjectQueueSCSP>) {
@@ -114,26 +109,20 @@ noexcept {
             }
             std::this_thread::yield();
         }
-
         fmt::print("hash of {} objects : {}\n", objects, seed);
     }};
-
     start_flag.start();
     writer.join();
     reader.join();
-
     return seed;
 }
 
 template<typename BufferQueue>
 requires std::same_as<BufferQueue, BufferQueueSCSP> || std::same_as<BufferQueue, BufferQueueMCSP>
-        size_t test(BufferQueue &bufferQueue, size_t objects, size_t seed)
-noexcept {
+auto test(BufferQueue &bufferQueue, size_t objects, size_t seed) noexcept {
     StartFlag start_flag;
-
     std::jthread writer{[&bufferQueue, &start_flag, objects, rng = Obj::RNG{seed}]() mutable {
         start_flag.wait();
-
         for (auto obj = objects; obj--;) {
             Obj o{rng};
             while (!bufferQueue.allocate_and_release(sizeof(Obj), [&](std::span<std::byte> buffer) noexcept -> size_t {
@@ -146,10 +135,8 @@ noexcept {
                 ;
         }
     }};
-
     std::jthread reader{[&bufferQueue, &start_flag, objects, seed, rng = Obj::RNG{seed}]() mutable {
         start_flag.wait();
-
         auto obj = objects;
         for (Timer timer{"read time "}; obj;) {
             if constexpr (std::same_as<BufferQueue, BufferQueueSCSP>) {
@@ -165,14 +152,11 @@ noexcept {
                     std::this_thread::yield();
             }
         }
-
         fmt::print("hash of {} objects : {}\n", objects, seed);
     }};
-
     start_flag.start();
     writer.join();
     reader.join();
-
     return seed;
 }
 
