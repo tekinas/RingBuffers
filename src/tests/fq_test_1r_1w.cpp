@@ -1,19 +1,20 @@
 #include "ComputeCallbackGenerator.h"
+#include "fmt/core.h"
 #include "util.h"
+
 #include <RingBuffers/FunctionQueue_MCSP.h>
 #include <RingBuffers/FunctionQueue_SCSP.h>
-#include <limits>
-#include <random>
 
 #include <fmt/format.h>
-
+#include <limits>
+#include <random>
 #include <thread>
 
 using namespace rb;
 using ComputeFunctionSig = size_t(size_t);
 using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, false>;
 using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, 1, false>;
-using FunctionQueueType = FunctionQueueMCSP;
+using FunctionQueueType = FunctionQueueSCSP;
 
 template<typename FQType>
 auto makeFunctionQueue(size_t buffer_size, uint16_t threads = 1) noexcept {
@@ -44,21 +45,19 @@ void test(FunctionQueue &functionQueue, CallbackGenerator &callbackGenerator, si
                         std::this_thread::yield();
                 }
             } else {
-                auto reader = functionQueue.getReader(0);
                 while (true) {
-                    if (auto function_handle = reader.get_function_handle())
+                    auto reader = functionQueue.getReader(0);
+                    while (auto function_handle = reader.get_function_handle(rb::check_once))
                         if (auto const res = function_handle.call_and_pop(num);
                             res != std::numeric_limits<size_t>::max())
                             num = res;
                         else
-                            break;
-                    else
-                        std::this_thread::yield();
+                            return;
+                    std::this_thread::yield();
                 }
             }
         }
         fmt::print("result : {}\n", num);
-        functionQueue.clear();
     }};
 
     std::jthread writer{[&] {
@@ -84,11 +83,12 @@ void test(FunctionQueue &functionQueue, CallbackGenerator &callbackGenerator, si
 int main(int argc, char **argv) {
     if (argc == 1) { fmt::print("usage : ./fq_test_1r_1w <buffer_size> <seed> <functions>\n"); }
 
-    auto const buffer_size = static_cast<size_t>([&] { return (argc >= 2) ? atof(argv[1]) : 1000.0 / 1024.0 / 1024.0; }() * 1024 * 1024);
+    auto const buffer_size =
+            (argc >= 2) ? static_cast<size_t>(atof(argv[1]) * 1024 * 1024) : FunctionQueueType::min_buffer_size();
 
     fmt::print("buffer size : {}\n", buffer_size);
 
-    auto const seed = [&] { return (argc >= 3) ? atol(argv[2]) : std::random_device{}(); }();
+    auto const seed = static_cast<size_t>([&] { return (argc >= 3) ? atol(argv[2]) : std::random_device{}(); }());
     fmt::print("seed : {}\n", seed);
 
     size_t const functions = [&] { return (argc >= 4) ? atol(argv[3]) : 20'000'000; }();

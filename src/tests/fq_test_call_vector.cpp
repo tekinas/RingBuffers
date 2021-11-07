@@ -3,14 +3,12 @@
 #include <RingBuffers/FunctionQueue.h>
 #include <RingBuffers/FunctionQueue_MCSP.h>
 #include <RingBuffers/FunctionQueue_SCSP.h>
-
 #include <bit>
 #include <chrono>
+#include <fmt/format.h>
 #include <folly/Function.h>
 #include <random>
 #include <type_traits>
-
-#include <fmt/format.h>
 
 using namespace rb;
 using ComputeFunctionSig = size_t(size_t);

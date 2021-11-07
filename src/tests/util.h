@@ -2,65 +2,58 @@
 #define UTIL
 
 #include <atomic>
+#include <boost/random.hpp>
 #include <concepts>
 #include <condition_variable>
+#include <fmt/format.h>
+#include <iterator>
 #include <memory>
 #include <memory_resource>
 #include <random>
 #include <span>
+#include <tuple>
 #include <type_traits>
-
-#include <fmt/format.h>
-
-#include <boost/random.hpp>
 
 namespace util {
     template<typename RNG_Type = std::mt19937_64>
     class Random {
     public:
-        Random() : rng{std::random_device{}()} {}
+        using result_type = typename RNG_Type::result_type;
 
-        template<std::unsigned_integral T>
-        Random(T t) : rng{t} {}
+        Random() noexcept : rng{std::random_device{}()} {}
 
-        template<std::unsigned_integral T>
-        void setSeed(T t) {
-            rng.seed(t);
-        }
+        explicit Random(result_type seed) noexcept : rng{seed} {}
 
-        template<std::floating_point T = float>
-        T getRand() {
-            return boost::random::uniform_real_distribution<T>{T{0.0}, T{1.0}}(rng);
+        void setSeed(result_type seed) noexcept { rng.seed(seed); }
+
+        template<typename T>
+        requires std::floating_point<T> || std::integral<T> T getRand()
+        noexcept {
+            using Limit = std::numeric_limits<T>;
+            auto dist = std::conditional_t<std::integral<T>, boost::random::uniform_int_distribution<T>,
+                                           boost::random::uniform_real_distribution<T>>{Limit::min(), Limit::max()};
+            return dist(rng);
         }
 
         template<typename T>
-        requires std::integral<T> || std::floating_point<T> T getRand(T lower, T upper) {
-            if constexpr (std::is_integral_v<T>) {
-                return boost::random::uniform_int_distribution<T>{lower, upper}(rng);
-            } else if constexpr (std::is_floating_point_v<T>) {
-                return boost::random::uniform_real_distribution<T>{lower, upper}(rng);
-            }
-        }
-
-        template<typename T, typename Container>
-        requires std::integral<T> || std::floating_point<T>
-        void addRand(T lower, T upper, uint64_t num, std::back_insert_iterator<Container> it) {
-            auto dist = std::conditional_t<std::is_integral_v<T>, boost::random::uniform_int_distribution<T>,
+        requires std::integral<T> || std::floating_point<T> T getRand(T lower, T upper)
+        noexcept {
+            auto dist = std::conditional_t<std::integral<T>, boost::random::uniform_int_distribution<T>,
                                            boost::random::uniform_real_distribution<T>>{lower, upper};
-            while (num--) { it = dist(rng); }
-        }
-
-        template<typename T, typename Container>
-        requires std::integral<T> || std::floating_point<T>
-        void addRand(T lower, T upper, uint64_t num, std::insert_iterator<Container> it) {
-            auto dist = std::conditional_t<std::is_integral_v<T>, boost::random::uniform_int_distribution<T>,
-                                           boost::random::uniform_real_distribution<T>>{lower, upper};
-            while (num--) { it = dist(rng); }
+            return dist(rng);
         }
 
         template<typename T>
         requires std::integral<T> || std::floating_point<T>
-        void setRand(T lower, T upper, std::span<T> span) {
+        void addRand(T lower, T upper, size_t num, std::output_iterator<T> auto itr) noexcept {
+            auto dist = std::conditional_t<std::integral<T>, boost::random::uniform_int_distribution<T>,
+                                           boost::random::uniform_real_distribution<T>>{lower, upper};
+            while (num--) *itr++ = dist(rng);
+        }
+
+        template<typename T>
+        requires std::integral<T> || std::floating_point<T>
+        void setRand(T lower, T upper, std::span<T> span) noexcept {
             auto dist = std::conditional_t<std::is_integral_v<T>, boost::random::uniform_int_distribution<T>,
                                            boost::random::uniform_real_distribution<T>>{lower, upper};
             for (auto &val : span) val = dist(rng);
@@ -75,85 +68,97 @@ namespace util {
 namespace util {
     template<typename T>
     class pmr_deleter {
-    public:
-        pmr_deleter(std::pmr::memory_resource *memoryResource) noexcept : memoryResource{memoryResource} {}
-
-        void operator()(T *const ptr) const noexcept {
-            if (ptr) std::destroy_at(ptr);
-            memoryResource->deallocate(ptr, sizeof(T), alignof(T));
-        }
-
     private:
-        std::pmr::memory_resource *memoryResource;
-    };
+        static_assert(!std::is_bounded_array_v<T>);
 
-    template<typename T>
-    class pmr_deleter<T[]> {
+        static constexpr bool is_array_deleter{std::is_unbounded_array_v<T>};
+        using object_type = std::remove_extent_t<T>;
+
     public:
+        explicit pmr_deleter(std::pmr::memory_resource *memoryResource) noexcept : m_MemoryResource{memoryResource} {}
+
         pmr_deleter(std::pmr::memory_resource *memoryResource, size_t size) noexcept
-            : memoryResource{memoryResource}, size{size} {}
+            : m_MemoryResource{memoryResource}, m_Size{size} {}
 
-        size_t getSize() const noexcept { return size; }
+        size_t array_size() const noexcept { return m_Size; }
 
-        std::pmr::memory_resource *getResource() const noexcept { return memoryResource; }
+        std::pmr::memory_resource *resource() const noexcept { return m_MemoryResource; }
 
-        void operator()(T *const ptr) const noexcept {
-            if (ptr) std::destroy_n(ptr, size);
-            memoryResource->deallocate(ptr, size * sizeof(T), alignof(T));
+        void operator()(object_type *ptr) const noexcept {
+            std::pmr::polymorphic_allocator<> alloc{m_MemoryResource};
+            if constexpr (is_array_deleter) {
+                std::destroy_n(ptr, m_Size);
+                alloc.deallocate_object(ptr, m_Size);
+            } else
+                alloc.delete_object(ptr);
         }
 
     private:
-        std::pmr::memory_resource *memoryResource;
-        size_t size;
+        class Empty {};
+        std::pmr::memory_resource *m_MemoryResource;
+        [[no_unique_address]] std::conditional_t<is_array_deleter, size_t, Empty> m_Size;
     };
 
     template<typename T>
     using pmr_unique_ptr = std::unique_ptr<T, pmr_deleter<T>>;
 
-    template<typename T>
-    struct UniquePointerType {
-        using single_object = pmr_unique_ptr<T>;
-    };
-
-    template<typename T>
-    struct UniquePointerType<T[]> {
-        using array = pmr_unique_ptr<T[]>;
-    };
-
-    template<typename T, size_t Bound>
-    struct UniquePointerType<T[Bound]> {
-        struct invalid_type {};
-    };
-
-    template<typename T, typename... ArgTypes>
-    typename UniquePointerType<T>::single_object make_unique(std::pmr::memory_resource *memoryResource,
-                                                             ArgTypes &&...args) noexcept {
-        std::pmr::polymorphic_allocator<T> alloc{memoryResource};
-        auto const ptr = alloc.allocate(1);
-
-        if (!ptr) return pmr_unique_ptr<T>{nullptr, pmr_deleter<T>{memoryResource}};
-
-        alloc.construct(ptr, std::forward<ArgTypes>(args)...);
-        return pmr_unique_ptr<T>{ptr, pmr_deleter<T>{memoryResource}};
+    template<typename T, typename... Args>
+    requires(!std::is_array_v<T>) pmr_unique_ptr<T> make_unique(std::pmr::memory_resource *memoryResource,
+                                                                Args &&...args)
+    noexcept {
+        using deleter = pmr_deleter<T>;
+        std::pmr::polymorphic_allocator<> alloc{memoryResource};
+        return {alloc.new_object<T>(std::forward<Args>(args)...), deleter{memoryResource}};
     }
 
     template<typename T>
-    typename UniquePointerType<T>::array make_unique(std::pmr::memory_resource *memoryResource,
-                                                     size_t const size) noexcept {
+    requires(!std::is_array_v<T>) pmr_unique_ptr<T> make_unique_for_overwrite(std::pmr::memory_resource *memoryResource)
+    noexcept {
+        using deleter = pmr_deleter<T>;
+        std::pmr::polymorphic_allocator<> alloc{memoryResource};
+        auto const ptr{alloc.allocate_object<T>()};
+        return {::new (static_cast<void *>(ptr)) T, deleter{memoryResource}};
+    }
+
+    template<class T>
+    requires std::is_unbounded_array_v<T> pmr_unique_ptr<T> make_unique(std::pmr::memory_resource *memoryResource,
+                                                                        size_t n)
+    noexcept {
+        using deleter = pmr_deleter<T>;
         using type = std::remove_extent_t<T>;
+        std::pmr::polymorphic_allocator<> alloc{memoryResource};
+        auto const ptr{alloc.allocate_object<type>(n)};
+        return {::new (static_cast<void *>(ptr)) type[n]{}, deleter{memoryResource, n}};
+    }
 
-        std::pmr::polymorphic_allocator<type> alloc{memoryResource};
-        auto const ptr = alloc.allocate(size);
+    template<class T>
+    requires std::is_unbounded_array_v<T> pmr_unique_ptr<T>
+    make_unique_for_overwrite(std::pmr::memory_resource *memoryResource, size_t n)
+    noexcept {
+        using deleter = pmr_deleter<T>;
+        using type = std::remove_extent_t<T>;
+        std::pmr::polymorphic_allocator<> alloc{memoryResource};
+        auto const ptr{alloc.allocate_object<type>(n)};
+        return {::new (static_cast<void *>(ptr)) type[n], deleter{memoryResource, n}};
+    }
 
-        if (!ptr) return pmr_unique_ptr<T>{nullptr, pmr_deleter<T>{memoryResource, size}};
+    template<class T, class... Args>
+    requires std::is_bounded_array_v<T>
+    void make_unique(Args &&...) = delete;
 
-        for (size_t i = 0; i != size; ++i) alloc.construct(ptr + i);
-        return pmr_unique_ptr<T>{ptr, pmr_deleter<T>{memoryResource, size}};
+    template<class T, class... Args>
+    requires std::is_bounded_array_v<T>
+    void make_unique_for_overwrite(Args &&...) = delete;
+
+    template<typename T>
+    requires std::is_unbounded_array_v<T>
+    auto get_span(pmr_unique_ptr<T> const &uptr) noexcept {
+        return std::span{uptr.get(), uptr.get_deleter().array_size()};
     }
 
     template<typename T>
-    typename UniquePointerType<T>::invalid_type make_unique(std::pmr::memory_resource *memoryResource,
-                                                            size_t size) = delete;
+    requires std::is_unbounded_array_v<T>
+    auto get_span(pmr_unique_ptr<T> const &&uptr) = delete;
 }// namespace util
 
 namespace util {
@@ -161,13 +166,14 @@ namespace util {
     public:
         using clock = std::chrono::steady_clock;
         using time_point = clock::time_point;
-        using print_duration_t = std::chrono::duration<double>;
+        using seconds = std::chrono::duration<double>;
 
-        explicit Timer(std::string_view str) noexcept : name{str}, start{clock::now()} {}
+        template<std::convertible_to<std::string> StrType>
+        explicit Timer(StrType &&str) noexcept : name{std::forward<StrType>(str)}, start{clock::now()} {}
 
         ~Timer() {
-            fmt::print("{} : {} seconds\n", name,
-                       std::chrono::duration_cast<print_duration_t>(clock::now() - start).count());
+            auto const duration{std::chrono::duration_cast<seconds>(clock::now() - start).count()};
+            fmt::print("{} : {} seconds\n", name, duration);
         }
 
     private:
@@ -214,16 +220,12 @@ namespace util {
 }// namespace util
 
 namespace util {
-    template<typename... Bases>
-    class overload : public Bases... {
-    public:
-        using Bases::operator()...;
-
-        template<typename... Obj>
-        explicit overload(Obj &&...obj) : Bases{std::forward<Obj>(obj)}... {}
-    };
-
-    template<class... Bases>
-    overload(Bases...) -> overload<Bases...>;
+    template<typename... Functors>
+    auto overload(Functors &&...functors) noexcept {
+        struct : std::remove_reference_t<Functors>... {
+            using std::remove_reference_t<Functors>::operator()...;
+        } overload_set{std::forward<Functors>(functors)...};
+        return overload_set;
+    }
 }// namespace util
 #endif

@@ -32,12 +32,6 @@ namespace rb::detail {
     template<typename Func>
     ScopeGaurd(Func &&) -> ScopeGaurd<std::decay_t<Func>>;
 
-    class Empty {
-    public:
-        template<typename... T>
-        explicit Empty(T &&...) noexcept {}
-    };
-
     class TaggedUint32 {
     public:
         TaggedUint32() noexcept = default;
