@@ -63,8 +63,9 @@ namespace rb {
             FunctionHandle(FunctionContextType *fcxt_ptr, std::byte *next_addr) noexcept
                 : m_FcxtPtr{fcxt_ptr}, m_NextAddr{next_addr} {}
 
-            void destroy_callable() {
+            void destroy_callable() noexcept {
                 if constexpr (destroyNonInvoked) m_FcxtPtr->destroyFO();
+                m_FcxtPtr = nullptr;
             }
 
             friend class FunctionQueue_MCSP;
