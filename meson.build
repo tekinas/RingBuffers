@@ -11,8 +11,8 @@ project_deps = declare_dependency(dependencies : [threads, fmt, folly, boost, ri
 executable('fq_test_1r_1w', 'src/tests/fq_test_1r_1w.cpp' , dependencies : project_deps)
 executable('fq_test_mr_mw', 'src/tests/fq_test_mr_mw.cpp' , dependencies : project_deps)
 
-executable('fq_test_call_vector', 'src/tests/fq_test_call_vector.cpp' , dependencies : project_deps)
-executable('fq_test_call_queue', 'src/tests/fq_test_call_queue.cpp' , dependencies : project_deps)
+executable('fq_test_cmp_vector', 'src/tests/fq_test_cmp_vector.cpp' , dependencies : project_deps)
+executable('fq_test_cmp_queue', 'src/tests/fq_test_cmp_queue.cpp' , dependencies : project_deps)
 
 executable('oq_test_1r_1w', 'src/tests/oq_test_1r_1w.cpp' , dependencies : project_deps)
 executable('oq_test_nr_1w', 'src/tests/oq_test_nr_1w.cpp' , dependencies : project_deps)
