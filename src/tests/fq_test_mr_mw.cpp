@@ -41,7 +41,7 @@ void reader(FunctionQueue &fq, size_t seed, uint16_t t, std::vector<size_t> &res
             ++func;
         }
     } else if (std::same_as<FunctionQueue, FunctionQueueMCSP>) {
-        auto reader = fq.getReader(t);
+        auto reader = fq.get_reader(t);
         while (!fq.empty()) {
             if (auto handle = reader.get_function_handle(rb::check_once)) {
                 auto const res = handle.call_and_pop(seed);
@@ -63,7 +63,8 @@ int main(int argc, char **argv) {
 
     constexpr size_t buffer_size = (1024 + 150) * 1024 * 1024;
 
-    auto const numWriterThreads = static_cast<uint16_t>([&] { return (argc >= 2) ? atol(argv[1]) : std::thread::hardware_concurrency(); }());
+    auto const numWriterThreads =
+            static_cast<uint16_t>([&] { return (argc >= 2) ? atol(argv[1]) : std::thread::hardware_concurrency(); }());
     fmt::print("writer threads : {}\n", numWriterThreads);
 
     size_t const numReaderThreads = [&] { return (argc >= 3) ? atol(argv[2]) : std::thread::hardware_concurrency(); }();

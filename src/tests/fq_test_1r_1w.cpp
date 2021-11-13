@@ -46,7 +46,7 @@ void test(FunctionQueue &functionQueue, CallbackGenerator &callbackGenerator, si
                 }
             } else {
                 while (true) {
-                    auto reader = functionQueue.getReader(0);
+                    auto reader = functionQueue.get_reader(0);
                     while (auto function_handle = reader.get_function_handle(rb::check_once))
                         if (auto const res = function_handle.call_and_pop(num);
                             res != std::numeric_limits<size_t>::max())

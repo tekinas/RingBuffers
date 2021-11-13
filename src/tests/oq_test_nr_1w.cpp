@@ -108,7 +108,7 @@ auto test(ObjectQueueType &objectQueue, uint16_t threads, uint32_t objects, std:
                     if constexpr (std::same_as<ObjectQueueType, ObjectQueue>)
                         while (!is_done.load(std::memory_order::relaxed)) {
                             {
-                                auto const reader = objectQueue.getReader(thread_id);
+                                auto const reader = objectQueue.get_reader(thread_id);
                                 reader.consume_all(rb::check_once,
                                                    [&](Obj &obj) noexcept { local_result.push_back(obj(rng)); });
                             }
@@ -151,10 +151,11 @@ auto test(FunctionQueue &functionQueue, uint16_t threads, uint32_t objects, std:
                         {
                             Timer timer{fmt::format("thread {}", thread_id)};
                             while (!is_done.load(std::memory_order::relaxed)) {
-                                for (auto const reader = functionQueue.getReader(thread_id);;)
-                                    if (auto handle = reader.get_function_handle())
+                                for (auto const reader = functionQueue.get_reader(thread_id);;)
+                                    if (auto handle = reader.get_function_handle()) {
                                         local_result.push_back(handle.call_and_pop(rng));
-                                    else
+                                        reader.release(std::move(handle));
+                                    } else
                                         break;
                                 std::this_thread::yield();
                             }

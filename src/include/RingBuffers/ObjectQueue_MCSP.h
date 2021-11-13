@@ -19,7 +19,8 @@ namespace rb {
     private:
         static_assert(max_reader_threads != 0);
 
-        using ReaderPos = std::atomic<ObjectType *>;
+        using Index = detail::TaggedUint32;
+        using ReaderPos = std::atomic<Index>;
         using ReaderPosPtrArray = std::array<ReaderPos *, max_reader_threads>;
         using CacheLine = std::aligned_storage_t<64, alignof(ReaderPos)>;
 
@@ -37,13 +38,12 @@ namespace rb {
             Ptr() noexcept {}
 
             Ptr(Ptr &&other) noexcept
-                : m_ObjectPtr{std::exchange(other.m_ObjectPtr, nullptr)}, m_NextPtr{other.m_NextPtr} {}
+                : m_ObjectPtr{std::exchange(other.m_ObjectPtr, nullptr)}, m_NextPos{other.m_NextPos} {}
 
             Ptr &operator=(Ptr &&other) noexcept {
                 if (*this) destroy_object();
-
                 m_ObjectPtr = std::exchange(other.m_ObjectPtr, nullptr);
-                m_NextPtr = other.m_NextPtr;
+                m_NextPos = other.m_NextPos;
                 return *this;
             }
 
@@ -56,19 +56,19 @@ namespace rb {
             }
 
         private:
-            Ptr(ObjectType *object_pos, ObjectType *next_pos) noexcept : m_ObjectPtr{object_pos}, m_NextPtr{next_pos} {}
+            Ptr(ObjectType *object_pos, Index next_pos) noexcept : m_ObjectPtr{object_pos}, m_NextPos{next_pos} {}
 
             void destroy_object() noexcept { std::destroy_at(std::exchange(m_ObjectPtr, nullptr)); }
 
             friend class ObjectQueue_MCSP;
             ObjectType *m_ObjectPtr{};
-            ObjectType *m_NextPtr;
+            Index m_NextPos;
         };
 
         class Reader {
         public:
             void release(Ptr &&p) const noexcept {
-                detail::ScopeGaurd const rs = [&, next_pos{p.m_NextPtr}] {
+                detail::ScopeGaurd const rs = [&, next_pos{p.m_NextPos}] {
                     m_ReaderPos->store(next_pos, std::memory_order::release);
                 };
                 auto const ptr = std::move(p);
@@ -101,7 +101,7 @@ namespace rb {
                 return consume_all_impl<&ObjectQueue_MCSP::get_object_check_once>(std::forward<Functor>(functor));
             }
 
-            ~Reader() { m_ReaderPos->store(nullptr, std::memory_order::release); }
+            ~Reader() { m_ReaderPos->store(Index::null(), std::memory_order::release); }
 
             Reader(Reader const &) = delete;
             Reader &operator=(Reader const &) = delete;
@@ -146,6 +146,7 @@ namespace rb {
               m_ReaderPosPtrArray{getReaderPosArray(allocator, reader_threads)}, m_Allocator{allocator} {}
 
         ~ObjectQueue_MCSP() {
+            clean_memory();
             destroyAllObjects();
 
             m_Allocator.deallocate_object(m_Array, m_LastElementIndex + 1);
@@ -155,16 +156,15 @@ namespace rb {
         uint32_t array_size() const noexcept { return m_LastElementIndex; }
 
         bool empty() const noexcept {
-            return m_InputIndex.load(std::memory_order::acquire).getValue() ==
-                   m_OutputReadIndex.load(std::memory_order::acquire).getValue();
+            return m_InputIndex.load(std::memory_order::acquire).value() ==
+                   m_OutputReadIndex.load(std::memory_order::acquire).value();
         }
 
-        Reader getReader(uint16_t thread_index) const noexcept {
+        Reader get_reader(uint16_t thread_index) const noexcept {
             auto const reader_pos = m_ReaderPosPtrArray[thread_index];
-            reader_pos->store(m_Array + m_OutputReadIndex.load(std::memory_order::relaxed).getValue(),
-                              std::memory_order::relaxed);
-            std::atomic_thread_fence(std::memory_order::release);
+            reader_pos->store(m_OutputReadIndex.load(std::memory_order::relaxed), std::memory_order::relaxed);
 
+            std::atomic_thread_fence(std::memory_order::release);
             return Reader{this, reader_pos};
         }
 
@@ -176,21 +176,21 @@ namespace rb {
         requires std::is_nothrow_constructible_v<ObjectType, Args...>
         bool emplace(Args &&...args) noexcept {
             auto const input_index = m_InputIndex.load(std::memory_order::relaxed);
-            auto const index_value = input_index.getValue();
-            auto const output_index = m_OutputFollowIndex;
+            auto const index_value = input_index.value();
+            auto const output_index = m_OutputFollowIndex.value();
             auto const nextInputIndexValue = index_value == m_LastElementIndex ? 0 : (index_value + 1);
 
             if (nextInputIndexValue == output_index) return false;
 
             std::construct_at(m_Array + index_value, std::forward<Args>(args)...);
 
-            auto const nextInputIndex = input_index.getIncrTagged(nextInputIndexValue);
+            auto const nextInputIndex = input_index.incr_tagged(nextInputIndexValue);
             m_InputIndex.store(nextInputIndex, std::memory_order::release);
 
-            if (nextInputIndex.getTag() == 0) [[unlikely]] {
+            if (nextInputIndex.tag() == 0) {
                 auto output_offset = nextInputIndex;
                 while (!m_OutputReadIndex.compare_exchange_weak(output_offset,
-                                                                nextInputIndex.getSameTagged(output_offset.getValue()),
+                                                                nextInputIndex.same_tagged(output_offset.value()),
                                                                 std::memory_order::relaxed, std::memory_order::relaxed))
                     ;
             }
@@ -203,8 +203,8 @@ namespace rb {
                 uint32_t emplace_back_n(Functor &&functor)
         noexcept {
             auto const input_index = m_InputIndex.load(std::memory_order::relaxed);
-            auto const index_value = input_index.getValue();
-            auto const output_index = m_OutputFollowIndex;
+            auto const index_value = input_index.value();
+            auto const output_index = m_OutputFollowIndex.value();
             auto const count_avl = (index_value < output_index)
                                            ? (output_index - index_value - 1)
                                            : (m_LastElementIndex - index_value + static_cast<bool>(output_index));
@@ -214,14 +214,14 @@ namespace rb {
             auto const obj_emplaced = std::forward<Functor>(functor)(m_Array + index_value, count_avl);
             auto const input_end = index_value + obj_emplaced;
             auto const nextInputIndexValue = (input_end == (m_LastElementIndex + 1)) ? 0 : input_end;
-            auto const nextInputIndex = input_index.getIncrTagged(nextInputIndexValue);
+            auto const nextInputIndex = input_index.incr_tagged(nextInputIndexValue);
 
             m_InputIndex.store(nextInputIndex, std::memory_order::release);
 
-            if (nextInputIndex.getTag() == 0) {
+            if (nextInputIndex.tag() == 0) {
                 auto output_offset = nextInputIndex;
                 while (!m_OutputReadIndex.compare_exchange_weak(output_offset,
-                                                                nextInputIndex.getSameTagged(output_offset.getValue()),
+                                                                nextInputIndex.getSameTagged(output_offset.value()),
                                                                 std::memory_order::relaxed, std::memory_order::relaxed))
                     ;
             }
@@ -230,22 +230,26 @@ namespace rb {
         }
 
         void clean_memory() noexcept {
-            constexpr auto MAX_IDX = std::numeric_limits<uint32_t>::max();
-            auto const currentFollowIndex = m_OutputFollowIndex;
-            auto const currentReadIndex = m_OutputReadIndex.load(std::memory_order::acquire).getValue();
+            auto const currentFollowOffset = m_OutputFollowIndex;
+            auto const currentReadOffset = m_OutputReadIndex.load(std::memory_order::acquire);
 
-            auto less_idx{MAX_IDX}, gequal_idx{MAX_IDX};
+            auto less_value = [](auto l, auto r) { return l.value() < r.value(); };
+
+            constexpr auto max_val = Index::max();
+            constexpr auto null_val = Index::null();
+            auto less_idx = max_val, gequal_idx = max_val;
             for (auto const &reader_pos : std::span{m_ReaderPosPtrArray.data(), m_ReaderThreads}) {
-                if (auto const output_pos = reader_pos->load(std::memory_order::acquire)) {
-                    auto const output_index = static_cast<uint32_t>(output_pos - m_Array);
-                    if (output_index >= currentFollowIndex) gequal_idx = std::min(gequal_idx, output_index);
+                if (auto const output_pos = reader_pos->load(std::memory_order::acquire); output_pos != null_val) {
+                    if (output_pos.tag() <= currentFollowOffset.tag()) return;
+                    else if (output_pos.value() >= currentFollowOffset.value())
+                        gequal_idx = std::min(gequal_idx, output_pos, less_value);
                     else
-                        less_idx = std::min(less_idx, output_index);
+                        less_idx = std::min(less_idx, output_pos, less_value);
                 }
             }
 
             m_OutputFollowIndex =
-                    (gequal_idx != MAX_IDX) ? gequal_idx : ((less_idx != MAX_IDX) ? less_idx : currentReadIndex);
+                    (gequal_idx != max_val) ? gequal_idx : ((less_idx != max_val) ? less_idx : currentReadOffset);
         }
 
     private:
@@ -256,38 +260,37 @@ namespace rb {
 
             auto output_index = m_OutputReadIndex.load(std::memory_order::relaxed);
             auto const input_index = m_InputIndex.load(std::memory_order::acquire);
-            rb::detail::TaggedUint32 nextOutputIndex;
+            Index nextOutputIndex;
 
             do {
-                if (input_index.getTag() < output_index.getTag() || input_index.getValue() == output_index.getValue())
-                    return {};
-                nextOutputIndex = input_index.getSameTagged(next_index(output_index.getValue()));
+                if (input_index.tag() < output_index.tag() || input_index.value() == output_index.value()) return {};
+                nextOutputIndex = input_index.same_tagged(next_index(output_index.value()));
             } while (!m_OutputReadIndex.compare_exchange_weak(output_index, nextOutputIndex, std::memory_order::relaxed,
                                                               std::memory_order::relaxed));
-            return {m_Array + output_index.getValue(), m_Array + nextOutputIndex.getValue()};
+            return {m_Array + output_index.value(), nextOutputIndex};
         }
 
         Ptr get_object_check_once() const noexcept {
             auto output_index = m_OutputReadIndex.load(std::memory_order::relaxed);
             auto const input_index = m_InputIndex.load(std::memory_order::acquire);
-            auto const currentIndex = output_index.getValue();
+            auto const currentIndex = output_index.value();
 
-            if (input_index.getTag() < output_index.getTag() || input_index.getValue() == currentIndex) return {};
+            if (input_index.tag() < output_index.tag() || input_index.value() == currentIndex) return {};
 
             auto const nextIndex = currentIndex == m_LastElementIndex ? 0 : (currentIndex + 1);
-            auto const nextOutputIndex = input_index.getSameTagged(nextIndex);
+            auto const nextOutputIndex = input_index.same_tagged(nextIndex);
 
             if (m_OutputReadIndex.compare_exchange_strong(output_index, nextOutputIndex, std::memory_order::relaxed,
                                                           std::memory_order::relaxed))
-                return {m_Array + currentIndex, m_Array + nextIndex};
+                return {m_Array + currentIndex, nextOutputIndex};
             else
                 return {};
         }
 
         void destroyAllObjects() noexcept {
             if constexpr (!std::is_trivially_destructible_v<ObjectType>) {
-                auto const input_index = m_InputIndex.load(std::memory_order::relaxed).getValue();
-                auto const output_index = m_OutputReadIndex.load(std::memory_order::relaxed).getValue();
+                auto const input_index = m_InputIndex.load(std::memory_order::relaxed).value();
+                auto const output_index = m_OutputReadIndex.load(std::memory_order::relaxed).value();
 
                 if (output_index == input_index) return;
                 else if (output_index > input_index) {
@@ -303,16 +306,17 @@ namespace rb {
             auto const cache_line_array = allocator.allocate_object<CacheLine>(threads);
             for (uint16_t t{0}; t != threads; ++t) {
                 auto const reader_pos_ptr = std::bit_cast<ReaderPos *>(cache_line_array + t);
-                reader_pos_ptr->store(nullptr, std::memory_order_release);
+                std::construct_at(reader_pos_ptr, Index::null());
                 readerPosArray[t] = reader_pos_ptr;
             }
+            std::atomic_thread_fence(std::memory_order::release);
             return readerPosArray;
         }
 
     private:
-        std::atomic<rb::detail::TaggedUint32> m_InputIndex{};
-        uint32_t m_OutputFollowIndex{0};
-        mutable std::atomic<rb::detail::TaggedUint32> m_OutputReadIndex{};
+        std::atomic<Index> m_InputIndex{};
+        Index m_OutputFollowIndex{};
+        mutable std::atomic<Index> m_OutputReadIndex{};
 
         uint32_t const m_LastElementIndex;
         uint16_t const m_ReaderThreads;

@@ -4,6 +4,8 @@
 #include <atomic>
 #include <bit>
 #include <cstdint>
+#include <functional>
+#include <limits>
 #include <utility>
 
 namespace rb {
@@ -36,23 +38,27 @@ namespace rb::detail {
     public:
         TaggedUint32() noexcept = default;
 
-        friend bool operator==(TaggedUint32 const &l, TaggedUint32 const &r) noexcept {
-            return l.value == r.value && l.tag == r.tag;
+        bool operator==(TaggedUint32 const &r) const noexcept { return m_Tag == r.m_Tag && m_Value == r.m_Value; }
+
+        uint32_t value() const noexcept { return m_Value; }
+
+        uint32_t tag() const noexcept { return m_Tag; }
+
+        TaggedUint32 incr_tagged(uint32_t new_value) const noexcept { return {m_Tag + 1, new_value}; }
+
+        TaggedUint32 same_tagged(uint32_t new_value) const noexcept { return {m_Tag, new_value}; }
+
+        static constexpr auto null() {
+            return TaggedUint32{std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max()};
         }
 
-        uint32_t getValue() const noexcept { return value; }
-
-        uint32_t getTag() const noexcept { return tag; }
-
-        TaggedUint32 getIncrTagged(uint32_t new_value) const noexcept { return {new_value, tag + 1}; }
-
-        TaggedUint32 getSameTagged(uint32_t new_value) const noexcept { return {new_value, tag}; }
+        static constexpr auto max() { return TaggedUint32{0, std::numeric_limits<uint32_t>::max()}; }
 
     private:
-        TaggedUint32(uint32_t value, uint32_t index) noexcept : value{value}, tag{index} {}
+        constexpr TaggedUint32(uint32_t tag_index, uint32_t value) noexcept : m_Tag{tag_index}, m_Value{value} {}
 
-        alignas(std::atomic<uint64_t>) uint32_t value{};
-        uint32_t tag{};
+        alignas(std::atomic<uint64_t>) uint32_t m_Tag{};
+        uint32_t m_Value{};
     };
 
     template<typename T>
@@ -71,13 +77,13 @@ namespace rb::detail {
         FunctionPtr(FPtr fp) noexcept : fp_offset{static_cast<uint32_t>(std::bit_cast<uintptr_t>(fp))} {}
 
         ReturnType operator()(FunctionArgs... fargs) const noexcept {
-            const uintptr_t fp_base = std::bit_cast<uintptr_t>(&fp_base_func) & uintptr_t{0XFFFFFFFF00000000lu};
-            return std::bit_cast<FPtr>(fp_base + fp_offset)(static_cast<FunctionArgs>(fargs)...);
+            uintptr_t const fp_base = std::bit_cast<uintptr_t>(&fp_base_func) & uintptr_t{0XFFFFFFFF00000000lu};
+            return std::invoke(std::bit_cast<FPtr>(fp_base + fp_offset), static_cast<FunctionArgs>(fargs)...);
         }
     };
 
     template<typename T, size_t alignment = alignof(T)>
-    static constexpr auto align(void const *ptr) noexcept {
+    auto align(void const *ptr) noexcept {
         return std::bit_cast<T *>((std::bit_cast<uintptr_t>(ptr) - 1u + alignment) & -alignment);
     }
 

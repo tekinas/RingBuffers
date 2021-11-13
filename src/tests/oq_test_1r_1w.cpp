@@ -91,7 +91,7 @@ auto test(ObjectQueueType &objectQueue, size_t objects, size_t seed) noexcept {
                 if (!objectQueue.empty())
                     obj -= objectQueue.consume_all([&](Obj const &obj) noexcept { seed = obj(rng, seed); });
             } else if constexpr (std::same_as<ObjectQueueType, ObjectQueueMCSP>) {
-                auto const reader = objectQueue.getReader(0);
+                auto const reader = objectQueue.get_reader(0);
                 auto const consumed = reader.consume_all([&](Obj const &obj) noexcept { seed = obj(rng, seed); });
                 if (consumed) obj -= consumed;
             } else if constexpr (std::same_as<ObjectQueueType, FunctionQueueSCSP>) {
@@ -100,7 +100,7 @@ auto test(ObjectQueueType &objectQueue, size_t objects, size_t seed) noexcept {
                     --obj;
                 }
             } else if constexpr (std::same_as<ObjectQueueType, FunctionQueueMCSP>) {
-                auto const reader = objectQueue.getReader(0);
+                auto const reader = objectQueue.get_reader(0);
                 for (FunctionQueueMCSP::FunctionHandle handle; (handle = reader.get_function_handle()); --obj)
                     seed = handle.call_and_pop(rng, seed);
             } else {

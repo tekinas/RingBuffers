@@ -43,7 +43,7 @@ void test(FunctionQueueType &functionQueue) noexcept {
                       std::same_as<FunctionQueueType, FunctionQueueSCSP>)
             while (!functionQueue.empty()) num = functionQueue.call_and_pop(num);
         else {
-            auto reader = functionQueue.getReader(0);
+            auto reader = functionQueue.get_reader(0);
             while (!functionQueue.empty()) num = reader.get_function_handle(rb::check_once).call_and_pop(num);
         }
     }
