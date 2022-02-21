@@ -31,16 +31,14 @@ public:
     Obj() noexcept = default;
 
     explicit Obj(RNG &rng) noexcept
-        : a{rng.getRand<uint64_t>(std::numeric_limits<uint64_t>::min(), std::numeric_limits<uint64_t>::max())},
-          b{rng.getRand<float>(std::numeric_limits<float>::min(), std::numeric_limits<float>::max())},
-          c{rng.getRand<uint32_t>(std::numeric_limits<uint32_t>::min(), std::numeric_limits<uint32_t>::max())} {}
+        : a{rng.get_rand<size_t>()}, b{rng.get_rand<float>()}, c{rng.get_rand<uint32_t>()} {}
 
     uint64_t operator()(Obj::RNG &rng) const noexcept {
         auto seed = a;
-        rng.setSeed(seed);
-        auto const aa = rng.getRand<uint64_t>(0, a);
-        auto const bb = std::bit_cast<uint32_t>(rng.getRand(-b, b));
-        auto const cc = rng.getRand<uint32_t>(0, c);
+        rng.set_seed(seed);
+        auto const aa = rng.get_rand<uint64_t>(0, a);
+        auto const bb = std::bit_cast<uint32_t>(rng.get_rand(-b, b));
+        auto const cc = rng.get_rand<uint32_t>(0, c);
 
         boost::hash_combine(seed, aa);
         boost::hash_combine(seed, bb);
@@ -49,7 +47,7 @@ public:
     }
 
 private:
-    uint64_t a;
+    size_t a;
     float b;
     uint32_t c;
 };
@@ -57,7 +55,7 @@ private:
 using namespace rb;
 using BoostQueue = boost::lockfree::queue<Obj, boost::lockfree::fixed_sized<true>>;
 using ObjectQueue = ObjectQueue_MCSP<Obj, 100>;
-using FunctionQueue = FunctionQueue_MCSP<uint64_t(Obj::RNG &), 100, false, memory_footprint<Obj>>;
+using FunctionQueue = FunctionQueue_MCSP<uint64_t(Obj::RNG &), false, memory_footprint<Obj>>;
 using BufferQueue = BufferQueue_MCSP<false, alignof(Obj)>;
 
 auto calculateAndDisplayFinalHash(auto &final_result) noexcept {

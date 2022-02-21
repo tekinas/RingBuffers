@@ -6,11 +6,16 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <memory_resource>
+#include <new>
+#include <type_traits>
 #include <utility>
 
 namespace rb {
+    using allocator_type = std::pmr::polymorphic_allocator<>;
+
     class check_once_tag {};
-    constexpr auto check_once = check_once_tag{};
+    inline constexpr auto check_once = check_once_tag{};
 };// namespace rb
 
 namespace rb::detail {
@@ -18,7 +23,7 @@ namespace rb::detail {
     class ScopeGaurd {
     public:
         template<typename F>
-        ScopeGaurd(F &&func) : m_Func{std::forward<F>(func)} {}
+        ScopeGaurd(F &&func) noexcept : m_Func{std::forward<F>(func)} {}
 
         void release() noexcept { m_Commit = true; }
 
@@ -61,7 +66,7 @@ namespace rb::detail {
         uint32_t m_Value{};
     };
 
-    template<typename T>
+    template<typename FunctionSignature>
     class FunctionPtr;
 
     inline void fp_base_func() {}
@@ -76,9 +81,17 @@ namespace rb::detail {
     public:
         FunctionPtr(FPtr fp) noexcept : fp_offset{static_cast<uint32_t>(std::bit_cast<uintptr_t>(fp))} {}
 
-        ReturnType operator()(FunctionArgs... fargs) const noexcept {
-            uintptr_t const fp_base = std::bit_cast<uintptr_t>(&fp_base_func) & uintptr_t{0XFFFFFFFF00000000lu};
-            return std::invoke(std::bit_cast<FPtr>(fp_base + fp_offset), static_cast<FunctionArgs>(fargs)...);
+        template<typename... FArgs>
+        requires std::is_nothrow_invocable_r_v<ReturnType, FPtr, FArgs...>
+        decltype(auto) operator()(FArgs &&...fargs) const noexcept {
+            auto const fp = [&] {
+                if constexpr (sizeof(FPtr) == sizeof(uint32_t)) return std::bit_cast<FPtr>(fp_offset);
+                else {
+                    auto const fp_base = std::bit_cast<uintptr_t>(&fp_base_func) & 0XFFFFFFFF00000000lu;
+                    return std::bit_cast<FPtr>(fp_base + fp_offset);
+                }
+            }();
+            return std::invoke(fp, std::forward<FArgs>(fargs)...);
         }
     };
 
@@ -87,6 +100,17 @@ namespace rb::detail {
         return std::bit_cast<T *>((std::bit_cast<uintptr_t>(ptr) - 1u + alignment) & -alignment);
     }
 
+}// namespace rb::detail
+
+namespace rb::detail {
+#ifdef __cpp_lib_hardware_interference_size
+    constexpr auto hardware_constructive_interference_size = std::hardware_constructive_interference_size;
+    constexpr auto hardware_destructive_interference_size = std::hardware_destructive_interference_size;
+#else
+    // 64 bytes on x86-64 │ L1_CACHE_BYTES │ L1_CACHE_SHIFT │ __cacheline_aligned │ ...
+    constexpr std::size_t hardware_constructive_interference_size{64};
+    constexpr std::size_t hardware_destructive_interference_size{64};
+#endif// namespace rb::detail
 }// namespace rb::detail
 
 #endif

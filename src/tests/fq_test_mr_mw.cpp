@@ -15,7 +15,7 @@ using namespace util;
 using namespace rb;
 using ComputeFunctionSig = size_t(size_t);
 using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, true>;
-using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, 20, true>;
+using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, true>;
 using FunctionQueueType = FunctionQueueMCSP;
 
 template<typename FQType>
@@ -29,9 +29,7 @@ template<typename FunctionQueue>
 void reader(FunctionQueue &fq, size_t seed, uint16_t t, std::vector<size_t> &result_vector,
             std::mutex &res_vec_mut) noexcept {
     std::vector<size_t> res_vec;
-
     uint32_t func{0};
-
     if constexpr (std::same_as<FunctionQueue, FunctionQueueSCSP>) {
         static util::SpinLock read_lock;
         while (true) {
@@ -51,9 +49,7 @@ void reader(FunctionQueue &fq, size_t seed, uint16_t t, std::vector<size_t> &res
                 std::this_thread::yield();
         }
     }
-
     fmt::print("thread {} read {} functions\n", t, func);
-
     std::scoped_lock lock{res_vec_mut};
     result_vector.insert(result_vector.end(), res_vec.begin(), res_vec.end());
 }

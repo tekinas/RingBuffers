@@ -23,72 +23,82 @@ namespace rb {
     class FunctionQueue_SCSP<R(Args...), destroyNonInvoked, max_obj_footprint> {
     private:
         using FunctionContext = detail::FunctionContext<destroyNonInvoked, max_obj_footprint, R, Args...>;
+        using RingBuffer = detail::RingBuffer;
 
     public:
-        using allocator_type = std::pmr::polymorphic_allocator<>;
-
-        static constexpr size_t min_buffer_size() noexcept { return FunctionContext::min_buffer_size; }
+        static constexpr auto min_buffer_size = detail::min_buffer_size<FunctionContext>;
 
         FunctionQueue_SCSP(size_t buffer_size, allocator_type allocator = {}) noexcept
-            : m_Buffer{static_cast<std::byte *>(
-                      allocator.allocate_bytes(buffer_size, FunctionContext::buffer_alignment))},
-              m_BufferEnd{m_Buffer + buffer_size - FunctionContext::sentinel_region_size}, m_InputPos{m_Buffer},
-              m_OutputPos{m_Buffer}, m_Allocator{allocator} {}
+            : m_Writer{.buffer = detail::allocate_buffer<FunctionContext>(allocator, buffer_size),
+                       .input_pos{m_Writer.buffer.data()},
+                       .follow_pos{m_Writer.buffer.data()}},
+              m_Reader{.output_pos{m_Writer.buffer.data()},
+                       .buffer_begin{m_Writer.buffer.data()},
+                       .buffer_end{m_Writer.buffer.data() + m_Writer.buffer.size()}},
+              m_Allocator{allocator} {}
 
         ~FunctionQueue_SCSP() {
-            if constexpr (destroyNonInvoked) FunctionContext::destroyAllNonInvoked(getBufferInfo());
-            m_Allocator.deallocate_bytes(m_Buffer, buffer_size(), FunctionContext::buffer_alignment);
+            if constexpr (destroyNonInvoked) {
+                RingBuffer const ring_buffer{m_Writer.buffer, m_Writer.input_pos.load(std::memory_order_relaxed),
+                                             m_Writer.follow_pos};
+                detail::destroyAllNonInvoked<FunctionContext>(ring_buffer);
+            }
+            detail::deallocate_buffer<FunctionContext>(m_Allocator, m_Writer.buffer);
         }
 
-        size_t buffer_size() const noexcept { return m_BufferEnd - m_Buffer + FunctionContext::sentinel_region_size; }
+        size_t buffer_size() const noexcept { return detail::buffer_size<FunctionContext>(m_Writer.buffer); }
 
         bool empty() const noexcept {
-            return m_InputPos.load(std::memory_order::acquire) == m_OutputPos.load(std::memory_order::relaxed);
+            return m_Writer.input_pos.load(std::memory_order::acquire) ==
+                   m_Reader.output_pos.load(std::memory_order::relaxed);
         }
 
-        template<typename... CArgs>
-        decltype(auto) call_and_pop(CArgs &&...args) noexcept {
-            auto const output_pos = m_OutputPos.load(std::memory_order::relaxed);
-            auto const &functionCxt = *std::bit_cast<FunctionContext *>(output_pos);
+        template<typename... CallArgs>
+        decltype(auto) call_and_pop(CallArgs &&...args) noexcept {
+            auto const output_pos = m_Reader.output_pos.load(std::memory_order::relaxed);
+            auto &functionCxt = *std::bit_cast<FunctionContext *>(output_pos);
 
             detail::ScopeGaurd const set_next_output_pos{[&, next_addr = output_pos + functionCxt.getStride()] {
-                auto const next_pos = next_addr < m_BufferEnd ? next_addr : m_Buffer;
-                m_OutputPos.store(next_pos, std::memory_order::release);
+                auto const next_pos = next_addr < m_Reader.buffer_end ? next_addr : m_Reader.buffer_begin;
+                m_Reader.output_pos.store(next_pos, std::memory_order::release);
             }};
 
-            return std::invoke(functionCxt, std::forward<CArgs>(args)...);
+            return std::invoke(functionCxt, std::forward<CallArgs>(args)...);
         }
 
         template<typename T>
         bool push(T &&callable) noexcept {
-            using Callable = std::decay_t<T>;
+            using Callable = std::remove_cvref_t<T>;
             return emplace<Callable>(std::forward<T>(callable));
         }
 
         template<typename Callable, typename... CArgs>
-        requires FunctionContext::template is_valid_callable_v<Callable, CArgs...> bool
-        emplace(CArgs &&...args) noexcept {
+        requires detail::valid_callable<Callable, FunctionContext, CArgs...>
+        bool emplace(CArgs &&...args) noexcept {
+            RingBuffer const ring_buffer{m_Writer.buffer, m_Writer.input_pos.load(std::memory_order_relaxed),
+                                         m_Writer.follow_pos};
             if (auto const next_addr =
-                        FunctionContext::template emplace<Callable>(getBufferInfo(), std::forward<CArgs>(args)...)) {
-                m_InputPos.store(next_addr, std::memory_order::release);
+                        detail::emplace<FunctionContext, Callable>(ring_buffer, std::forward<CArgs>(args)...)) {
+                m_Writer.input_pos.store(next_addr, std::memory_order::release);
                 return true;
             } else
                 return false;
         }
 
+        void clean_memory() noexcept { m_Writer.follow_pos = m_Reader.output_pos.load(std::memory_order::acquire); }
+
     private:
-        auto getBufferInfo() const noexcept {
-            return detail::RingBufferInfo{.input_pos = m_InputPos.load(std::memory_order::relaxed),
-                                          .output_pos = m_OutputPos.load(std::memory_order::acquire),
-                                          .buffer_start = m_Buffer,
-                                          .buffer_end = m_BufferEnd};
-        }
+        alignas(detail::hardware_destructive_interference_size) struct {
+            std::span<std::byte> const buffer;
+            std::atomic<std::byte *> input_pos;
+            std::byte *follow_pos;
+        } m_Writer;
 
-        std::byte *const m_Buffer;
-        std::byte *const m_BufferEnd;
-
-        std::atomic<std::byte *> m_InputPos;
-        mutable std::atomic<std::byte *> m_OutputPos;
+        alignas(detail::hardware_destructive_interference_size) struct {
+            std::atomic<std::byte *> output_pos;
+            std::byte *buffer_begin;
+            std::byte *buffer_end;
+        } m_Reader;
 
         allocator_type m_Allocator;
     };

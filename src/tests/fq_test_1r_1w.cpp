@@ -13,7 +13,7 @@
 using namespace rb;
 using ComputeFunctionSig = size_t(size_t);
 using FunctionQueueSCSP = FunctionQueue_SCSP<ComputeFunctionSig, false>;
-using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, 1, false>;
+using FunctionQueueMCSP = FunctionQueue_MCSP<ComputeFunctionSig, false>;
 using FunctionQueueType = FunctionQueueSCSP;
 
 template<typename FQType>
@@ -67,7 +67,7 @@ void test(FunctionQueue &functionQueue, CallbackGenerator &callbackGenerator, si
             callbackGenerator.addCallback([&]<typename T>(T &&t) {
                 while (!functionQueue.push(std::forward<T>(t))) {
                     std::this_thread::yield();
-                    if constexpr (std::is_same_v<FunctionQueueMCSP, FunctionQueue>) functionQueue.clean_memory();
+                    functionQueue.clean_memory();
                 }
                 --func;
             });
@@ -84,7 +84,7 @@ int main(int argc, char **argv) {
     if (argc == 1) { fmt::print("usage : ./fq_test_1r_1w <buffer_size> <seed> <functions>\n"); }
 
     auto const buffer_size =
-            (argc >= 2) ? static_cast<size_t>(atof(argv[1]) * 1024 * 1024) : FunctionQueueType::min_buffer_size();
+            (argc >= 2) ? static_cast<size_t>(atof(argv[1]) * 1024 * 1024) : FunctionQueueType::min_buffer_size;
 
     fmt::print("buffer size : {}\n", buffer_size);
 

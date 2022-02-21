@@ -34,15 +34,13 @@ public:
     Obj() noexcept = default;
 
     explicit Obj(RNG &rng) noexcept
-        : a{rng.getRand<uint64_t>(std::numeric_limits<uint64_t>::min(), std::numeric_limits<uint64_t>::max())},
-          b{rng.getRand<float>(std::numeric_limits<float>::min(), std::numeric_limits<float>::max())},
-          c{rng.getRand<uint32_t>(std::numeric_limits<uint32_t>::min(), std::numeric_limits<uint32_t>::max())} {}
+        : a{rng.get_rand<uint64_t>()}, b{rng.get_rand<float>()}, c{rng.get_rand<uint32_t>()} {}
 
     size_t operator()(Obj::RNG &rng, size_t seed) const noexcept {
-        rng.setSeed(seed);
-        auto const aa = rng.getRand<uint64_t>(0, a);
-        auto const bb = std::bit_cast<uint32_t>(rng.getRand(-b, b));
-        auto const cc = rng.getRand<uint32_t>(0, c);
+        rng.set_seed(seed);
+        auto const aa = rng.get_rand<uint64_t>(0, a);
+        auto const bb = std::bit_cast<uint32_t>(rng.get_rand(-b, b));
+        auto const cc = rng.get_rand<uint32_t>(0, c);
 
         boost::hash_combine(seed, aa);
         boost::hash_combine(seed, bb);
@@ -62,7 +60,7 @@ using BoostQueueMCMP = boost::lockfree::queue<Obj, boost::lockfree::fixed_sized<
 using ObjectQueueSCSP = ObjectQueue_SCSP<Obj>;
 using ObjectQueueMCSP = ObjectQueue_MCSP<Obj, 1>;
 using FunctionQueueSCSP = FunctionQueue_SCSP<size_t(Obj::RNG &, size_t), false, memory_footprint<Obj>>;
-using FunctionQueueMCSP = FunctionQueue_MCSP<size_t(Obj::RNG &, size_t), 1, false, memory_footprint<Obj>>;
+using FunctionQueueMCSP = FunctionQueue_MCSP<size_t(Obj::RNG &, size_t), false, memory_footprint<Obj>>;
 using BufferQueueSCSP = BufferQueue_SCSP<false, false, alignof(Obj)>;
 using BufferQueueMCSP = BufferQueue_MCSP<false, alignof(Obj)>;
 
@@ -77,7 +75,8 @@ auto test(ObjectQueueType &objectQueue, size_t objects, size_t seed) noexcept {
         for (auto obj{objects}; obj--;) {
             Obj o{rng};
             while (!objectQueue.push(o)) {
-                if constexpr (std::same_as<ObjectQueueType, FunctionQueueMCSP> ||
+                if constexpr (std::same_as<ObjectQueueType, FunctionQueueSCSP> ||
+                              std::same_as<ObjectQueueType, FunctionQueueMCSP> ||
                               std::same_as<ObjectQueueType, ObjectQueueMCSP>)
                     objectQueue.clean_memory();
             }
@@ -142,11 +141,11 @@ auto test(BufferQueue &bufferQueue, size_t objects, size_t seed) noexcept {
             if constexpr (std::same_as<BufferQueue, BufferQueueSCSP>) {
                 while (!bufferQueue.reserve()) std::this_thread::yield();
                 obj -= bufferQueue.consume_all([&](std::span<std::byte> buffer) {
-                    seed = (*std::bit_cast<Obj *>(buffer.data())) (rng, seed);
+                    seed = (*std::bit_cast<Obj *>(buffer.data()))(rng, seed);
                 }) / sizeof(Obj);
             } else {
                 if (auto data_buffer = bufferQueue.consume()) {
-                    seed = (*std::bit_cast<Obj *>(data_buffer.get().data())) (rng, seed);
+                    seed = (*std::bit_cast<Obj *>(data_buffer.get().data()))(rng, seed);
                     --obj;
                 } else
                     std::this_thread::yield();

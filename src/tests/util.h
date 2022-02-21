@@ -3,84 +3,123 @@
 
 #include <atomic>
 #include <boost/random.hpp>
+#include <cmath>
 #include <concepts>
 #include <condition_variable>
 #include <fmt/format.h>
+#include <ios>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <memory_resource>
 #include <random>
+#include <ranges>
 #include <span>
 #include <tuple>
 #include <type_traits>
 
 namespace util {
+    template<typename InputItrImpl>
+    auto get_input_range(InputItrImpl itr) {
+        struct InputItr : InputItrImpl {
+            using InputItrImpl::done;
+            using InputItrImpl::next;
+            using InputItrImpl::value;
+
+            using value_type = decltype(std::declval<InputItrImpl>().value());
+            using difference_type = std::ptrdiff_t;
+
+            value_type operator*() const noexcept { return value(); }
+            auto &operator++() noexcept {
+                next();
+                return *this;
+            }
+            auto operator++(int) noexcept {
+                auto temp = *this;
+                ++*this;
+                return temp;
+            }
+            bool operator==(int) const noexcept { return done(); }
+        };
+
+        return std::ranges::subrange{InputItr{itr}, int{}};
+    }
+
     template<typename RNG_Type = std::mt19937_64>
     class Random {
     public:
         using result_type = typename RNG_Type::result_type;
 
+        template<std::integral I>
+        using IntDist = boost::random::uniform_int_distribution<I>;
+
+        template<std::floating_point F>
+        using RealDist = boost::random::uniform_real_distribution<F>;
+
         Random() noexcept : rng{std::random_device{}()} {}
 
         explicit Random(result_type seed) noexcept : rng{seed} {}
 
-        void setSeed(result_type seed) noexcept { rng.seed(seed); }
+        void set_seed(result_type seed) noexcept { rng.seed(seed); }
 
         template<typename T>
-        requires std::floating_point<T> || std::integral<T> T getRand()
-        noexcept {
+        requires std::floating_point<T> || std::integral<T>
+        auto get_rand() noexcept {
             using Limit = std::numeric_limits<T>;
-            auto dist = std::conditional_t<std::integral<T>, boost::random::uniform_int_distribution<T>,
-                                           boost::random::uniform_real_distribution<T>>{Limit::min(), Limit::max()};
-            return dist(rng);
+            return get_rand(Limit::min(), Limit::max());
         }
 
-        template<typename T>
-        requires std::integral<T> || std::floating_point<T> T getRand(T lower, T upper)
-        noexcept {
-            auto dist = std::conditional_t<std::integral<T>, boost::random::uniform_int_distribution<T>,
-                                           boost::random::uniform_real_distribution<T>>{lower, upper};
-            return dist(rng);
+        template<std::integral T>
+        auto get_rand(T lower, T upper) noexcept {
+            return IntDist<T>{lower, upper}(rng);
         }
 
-        template<typename T>
-        requires std::integral<T> || std::floating_point<T>
-        void addRand(T lower, T upper, size_t num, std::output_iterator<T> auto itr) noexcept {
-            auto dist = std::conditional_t<std::integral<T>, boost::random::uniform_int_distribution<T>,
-                                           boost::random::uniform_real_distribution<T>>{lower, upper};
-            while (num--) *itr++ = dist(rng);
-        }
-
-        template<typename T>
-        requires std::integral<T> || std::floating_point<T>
-        void setRand(T lower, T upper, std::span<T> span) noexcept {
-            auto dist = std::conditional_t<std::is_integral_v<T>, boost::random::uniform_int_distribution<T>,
-                                           boost::random::uniform_real_distribution<T>>{lower, upper};
-            for (auto &val : span) val = dist(rng);
+        template<std::floating_point T>
+        auto get_rand(T lower, T upper) noexcept {
+            return RealDist<T>{lower, upper}(rng);
         }
 
     private:
         RNG_Type rng;
     };
+
+    template<typename T, typename Random>
+    requires std::integral<T> or std::floating_point<T>
+    auto random_range(Random &random, T lower, T upper) noexcept {
+        struct Iterator {
+            Random *rng;
+            T lower, upper, current{};
+            T value() const noexcept { return current; }
+            void next() noexcept { current = rng->get_rand(lower, upper); }
+            bool done() const noexcept { return false; }
+        };
+        return get_input_range(Iterator{&random, lower, upper});
+    }
+
+    template<typename T, typename Random>
+    requires std::integral<T> or std::floating_point<T>
+    auto random_range(Random &random) noexcept {
+        using Limit = std::numeric_limits<T>;
+        return random_range(random, Limit::min(), Limit::max());
+    }
 }// namespace util
 
 
 namespace util {
     template<typename T>
-    class pmr_deleter {
+    requires(not std::is_bounded_array_v<T>) class pmr_deleter {
     private:
-        static_assert(!std::is_bounded_array_v<T>);
-
         static constexpr bool is_array_deleter{std::is_unbounded_array_v<T>};
         using object_type = std::remove_extent_t<T>;
 
     public:
         explicit pmr_deleter(std::pmr::memory_resource *memoryResource) noexcept : m_MemoryResource{memoryResource} {}
 
-        pmr_deleter(std::pmr::memory_resource *memoryResource, size_t size) noexcept
-            : m_MemoryResource{memoryResource}, m_Size{size} {}
+        explicit pmr_deleter(std::pmr::memory_resource *memoryResource, size_t size) noexcept requires is_array_deleter
+            : m_MemoryResource{memoryResource},
+              m_Size{size} {}
 
-        size_t array_size() const noexcept { return m_Size; }
+        size_t array_size() const noexcept requires is_array_deleter { return m_Size; }
 
         std::pmr::memory_resource *resource() const noexcept { return m_MemoryResource; }
 
@@ -106,40 +145,36 @@ namespace util {
     requires(!std::is_array_v<T>) pmr_unique_ptr<T> make_unique(std::pmr::memory_resource *memoryResource,
                                                                 Args &&...args)
     noexcept {
-        using deleter = pmr_deleter<T>;
         std::pmr::polymorphic_allocator<> alloc{memoryResource};
-        return {alloc.new_object<T>(std::forward<Args>(args)...), deleter{memoryResource}};
+        return {alloc.new_object<T>(std::forward<Args>(args)...), pmr_deleter<T>{memoryResource}};
     }
 
     template<typename T>
     requires(!std::is_array_v<T>) pmr_unique_ptr<T> make_unique_for_overwrite(std::pmr::memory_resource *memoryResource)
     noexcept {
-        using deleter = pmr_deleter<T>;
         std::pmr::polymorphic_allocator<> alloc{memoryResource};
-        auto const ptr{alloc.allocate_object<T>()};
-        return {::new (static_cast<void *>(ptr)) T, deleter{memoryResource}};
+        auto const ptr = alloc.allocate_object<T>();
+        return {::new (static_cast<void *>(ptr)) T, pmr_deleter<T>{memoryResource}};
     }
 
     template<class T>
     requires std::is_unbounded_array_v<T> pmr_unique_ptr<T> make_unique(std::pmr::memory_resource *memoryResource,
                                                                         size_t n)
     noexcept {
-        using deleter = pmr_deleter<T>;
         using type = std::remove_extent_t<T>;
         std::pmr::polymorphic_allocator<> alloc{memoryResource};
-        auto const ptr{alloc.allocate_object<type>(n)};
-        return {::new (static_cast<void *>(ptr)) type[n]{}, deleter{memoryResource, n}};
+        auto const ptr = alloc.allocate_object<type>(n);
+        return {::new (static_cast<void *>(ptr)) type[n]{}, pmr_deleter<T>{memoryResource, n}};
     }
 
     template<class T>
     requires std::is_unbounded_array_v<T> pmr_unique_ptr<T>
     make_unique_for_overwrite(std::pmr::memory_resource *memoryResource, size_t n)
     noexcept {
-        using deleter = pmr_deleter<T>;
         using type = std::remove_extent_t<T>;
         std::pmr::polymorphic_allocator<> alloc{memoryResource};
-        auto const ptr{alloc.allocate_object<type>(n)};
-        return {::new (static_cast<void *>(ptr)) type[n], deleter{memoryResource, n}};
+        auto const ptr = alloc.allocate_object<type>(n);
+        return {::new (static_cast<void *>(ptr)) type[n], pmr_deleter<T>{memoryResource, n}};
     }
 
     template<class T, class... Args>
@@ -151,10 +186,8 @@ namespace util {
     void make_unique_for_overwrite(Args &&...) = delete;
 
     template<typename T>
-    requires std::is_unbounded_array_v<T>
-    auto get_span(pmr_unique_ptr<T> const &uptr) noexcept {
-        return std::span{uptr.get(), uptr.get_deleter().array_size()};
-    }
+    requires std::is_unbounded_array_v<T> std::span<T> get_span(pmr_unique_ptr<T> const &uptr)
+    noexcept { return {uptr.get(), uptr.get_deleter().array_size()}; }
 
     template<typename T>
     requires std::is_unbounded_array_v<T>
@@ -171,14 +204,17 @@ namespace util {
         template<std::convertible_to<std::string> StrType>
         explicit Timer(StrType &&str) noexcept : name{std::forward<StrType>(str)}, start{clock::now()} {}
 
+        Timer(Timer const &) = delete;
+        Timer &operator=(Timer const &) = delete;
+
         ~Timer() {
-            auto const duration{std::chrono::duration_cast<seconds>(clock::now() - start).count()};
+            auto const duration = std::chrono::duration_cast<seconds>(clock::now() - start).count();
             fmt::print("{} : {} seconds\n", name, duration);
         }
 
     private:
-        std::string const name;
-        time_point const start;
+        std::string name;
+        time_point start;
     };
 }// namespace util
 
@@ -200,8 +236,6 @@ namespace util {
 namespace util {
     class SpinLock {
     public:
-        SpinLock() = default;
-
         bool try_lock() noexcept {
             if (lock_flag.test(std::memory_order::relaxed)) return false;
             else
@@ -209,7 +243,8 @@ namespace util {
         }
 
         void lock() noexcept {
-            while (lock_flag.test_and_set(std::memory_order::acquire)) std::this_thread::yield();
+            while (lock_flag.test_and_set(std::memory_order::acquire))
+                while (lock_flag.test(std::memory_order::acquire)) std::this_thread::yield();
         }
 
         void unlock() noexcept { lock_flag.clear(std::memory_order::release); }
@@ -221,11 +256,12 @@ namespace util {
 
 namespace util {
     template<typename... Functors>
-    auto overload(Functors &&...functors) noexcept {
-        struct : std::remove_reference_t<Functors>... {
-            using std::remove_reference_t<Functors>::operator()...;
+    constexpr auto overload(Functors &&...functors) noexcept {
+        struct : std::remove_cvref_t<Functors>... {
+            using std::remove_cvref_t<Functors>::operator()...;
         } overload_set{std::forward<Functors>(functors)...};
         return overload_set;
     }
 }// namespace util
+
 #endif
