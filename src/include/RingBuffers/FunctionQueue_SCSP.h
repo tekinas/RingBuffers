@@ -57,12 +57,10 @@ namespace rb {
         decltype(auto) call_and_pop(CallArgs &&...args) noexcept {
             auto const output_pos = m_Reader.output_pos.load(std::memory_order::relaxed);
             auto &functionCxt = *std::bit_cast<FunctionContext *>(output_pos);
-
             detail::ScopeGaurd const set_next_output_pos{[&, next_addr = output_pos + functionCxt.getStride()] {
                 auto const next_pos = next_addr < m_Reader.buffer_end ? next_addr : m_Reader.buffer_begin;
                 m_Reader.output_pos.store(next_pos, std::memory_order::release);
             }};
-
             return std::invoke(functionCxt, std::forward<CallArgs>(args)...);
         }
 

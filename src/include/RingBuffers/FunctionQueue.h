@@ -38,7 +38,6 @@ namespace rb {
 
         void clear() noexcept {
             if constexpr (destroyNonInvoked) destroyAllNonInvoked<FunctionContext>(m_Buffer);
-
             m_Buffer.input_pos = m_Buffer.begin;
             m_Buffer.output_pos = m_Buffer.begin;
         }
@@ -48,12 +47,10 @@ namespace rb {
         template<typename... CArgs>
         decltype(auto) call_and_pop(CArgs &&...args) noexcept {
             auto &functionCxt = *std::bit_cast<FunctionContext *>(m_Buffer.output_pos);
-
             detail::ScopeGaurd const set_next_output_pos = [&,
                                                             next_addr = m_Buffer.output_pos + functionCxt.getStride()] {
                 m_Buffer.output_pos = next_addr < m_Buffer.end ? next_addr : m_Buffer.begin;
             };
-
             return std::invoke(functionCxt, std::forward<CArgs>(args)...);
         }
 

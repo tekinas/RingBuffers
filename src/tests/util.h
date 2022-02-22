@@ -20,18 +20,15 @@
 
 namespace util {
     template<typename InputItrImpl>
-    auto get_input_range(InputItrImpl itr) {
-        struct InputItr : InputItrImpl {
-            using InputItrImpl::done;
-            using InputItrImpl::next;
-            using InputItrImpl::value;
-
+    auto get_input_range(InputItrImpl impl) {
+        struct InputItr {
             using value_type = decltype(std::declval<InputItrImpl>().value());
             using difference_type = std::ptrdiff_t;
 
-            value_type operator*() const noexcept { return value(); }
+            value_type operator*() const noexcept { return impl.value(); }
+
             auto &operator++() noexcept {
-                next();
+                impl.next();
                 return *this;
             }
             auto operator++(int) noexcept {
@@ -39,10 +36,12 @@ namespace util {
                 ++*this;
                 return temp;
             }
-            bool operator==(int) const noexcept { return done(); }
+            bool operator==(int) const noexcept { return impl.done(); }
+
+            InputItrImpl impl;
         };
 
-        return std::ranges::subrange{InputItr{itr}, int{}};
+        return std::ranges::subrange{InputItr{impl}, int{}};
     }
 
     template<typename RNG_Type = std::mt19937_64>

@@ -109,7 +109,7 @@ int main(int argc, char **argv) {
     fmt::print("{} reader threads joined\n\n", numReaderThreads);
 
     fmt::print("result vector size : {}\n", result_vector.size());
-    fmt::print("sorting result vector .... ");
+    fmt::print("sorting result vector ....\n");
     std::sort(result_vector.begin(), result_vector.end());
     fmt::print("result vector sorted\n");
 
