@@ -27,7 +27,7 @@ namespace rb {
         using Offset = detail::TaggedUint32;
         using FunctionContext = detail::FunctionContext<destroyNonInvoked, max_obj_footprint, R, Args...>;
         using ReaderPos = std::atomic<Offset>;
-        using CacheLine = std::aligned_storage_t<detail::hardware_destructive_interference_size>;
+        using CacheLine = std::aligned_storage_t<detail::hardware_destructive_interference_size, alignof(ReaderPos)>;
         using RingBuffer = detail::RingBuffer;
 
     public:
@@ -99,7 +99,7 @@ namespace rb {
             ReaderPos *m_ReaderPos;
         };
 
-        static constexpr size_t min_buffer_size() noexcept { return FunctionContext::min_buffer_size; }
+        static constexpr auto min_buffer_size = detail::min_buffer_size<FunctionContext>;
 
         FunctionQueue_MCSP(size_t buffer_size, uint16_t reader_threads, allocator_type allocator = {}) noexcept
             : m_Writer{.input_offset{},
@@ -130,11 +130,11 @@ namespace rb {
         }
 
         auto get_reader(uint16_t thread_index) noexcept {
-            auto const reader_pos = reinterpret_cast<ReaderPos *>(&m_Reader.position_array[thread_index]);
-            reader_pos->store(m_Reader.output_offset.load(std::memory_order::relaxed), std::memory_order::relaxed);
+            auto &reader_pos = reinterpret_cast<ReaderPos &>(m_Reader.position_array[thread_index]);
+            reader_pos.store(m_Reader.output_offset.load(std::memory_order::relaxed), std::memory_order::relaxed);
 
             std::atomic_thread_fence(std::memory_order::release);
-            return Reader{this, reader_pos};
+            return Reader{this, &reader_pos};
         }
 
         template<typename T>
@@ -176,9 +176,9 @@ namespace rb {
             constexpr auto max_val = Offset::max();
             constexpr auto null_val = Offset::null();
             auto less_idx = max_val, gequal_idx = max_val;
-            for (auto const &cache_line : m_Reader.position_array) {
-                auto const &reader_pos = reinterpret_cast<ReaderPos const &>(cache_line);
-                if (auto const output_pos = reader_pos.load(std::memory_order::relaxed); output_pos != null_val) {
+            for (auto &&cache_line : m_Reader.position_array) {
+                if (auto const output_pos = reinterpret_cast<ReaderPos &>(cache_line).load(std::memory_order_relaxed);
+                    output_pos != null_val) {
                     if (output_pos.tag() <= currentFollowOffset.tag()) return;
                     else if (output_pos.value() >= currentFollowOffset.value())
                         gequal_idx = std::min(gequal_idx, output_pos, less_value);

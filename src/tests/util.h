@@ -85,12 +85,19 @@ namespace util {
     template<typename T, typename Random>
     requires std::integral<T> or std::floating_point<T>
     auto random_range(Random &random, T lower, T upper) noexcept {
-        struct Iterator {
-            Random *rng;
-            T lower, upper, current{};
+        class Iterator {
+        public:
+            Iterator() noexcept = default;
+            Iterator(Random *rng, T lower, T upper) noexcept : rng{rng}, lower{lower}, upper{upper}, current{} {
+                next();
+            }
             T value() const noexcept { return current; }
             void next() noexcept { current = rng->get_rand(lower, upper); }
             bool done() const noexcept { return false; }
+
+        private:
+            Random *rng;
+            T lower, upper, current;
         };
         return get_input_range(Iterator{&random, lower, upper});
     }
